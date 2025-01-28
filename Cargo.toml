@@ -2,11 +2,24 @@
 name = "glebus_vpn_bot"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gleb Gudkov <LineGM@yandex.ru>"]
+description = "Telegram bot for managing GlebusVPN connections"
+repository = "https://github.com/LineGM/glebus_vpn_bot"
+license = "UNLICENSE"
+readme = "README.md"
+
+[lib]
+name = "glebus_vpn_bot"
+path = "src/lib.rs"
+
+[[bin]]
+name = "glebus_vpn_bot"
+path = "src/bin/main.rs"
 
 [dependencies]
 teloxide = { version = "0.13", features = ["macros"] }
 log = "0.4"
-pretty_env_logger = "0.5"
-tokio = { version =  "1.43", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.43", features = ["rt-multi-thread", "macros"] }
 dotenv = "0.15"
 log4rs = "1.3"
+dptree = "0.3"
