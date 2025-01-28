@@ -62,7 +62,7 @@ async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
     let username = msg
         .from
         .map(|u| u.username.unwrap_or_else(|| "неизвестный".to_string()))
-        .unwrap_or_else(|| "аноним".to_string());
+        .unwrap_or_else(|| "неизвестный".to_string());
 
     log::info!(
         "Пользователь {} с chat_id={} вызвал команду /start",
@@ -84,7 +84,7 @@ async fn help(bot: Bot, msg: Message) -> HandlerResult {
         "Пользователь {} с chat_id={} вызвал команду /help",
         msg.from
             .map(|u| u.username.unwrap_or_else(|| "неизвестный".to_string()))
-            .unwrap_or_else(|| "аноним".to_string()),
+            .unwrap_or_else(|| "неизвестный".to_string()),
         msg.chat.id
     );
 
@@ -98,7 +98,7 @@ async fn cancel(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
         "Пользователь {} с chat_id={} вызвал команду /cancel",
         msg.from
             .map(|u| u.username.unwrap_or_else(|| "неизвестный".to_string()))
-            .unwrap_or_else(|| "аноним".to_string()),
+            .unwrap_or_else(|| "неизвестный".to_string()),
         msg.chat.id
     );
 
@@ -127,7 +127,7 @@ async fn receive_device_count(bot: Bot, dialogue: MyDialogue, msg: Message) -> H
                 .clone()
                 .unwrap_or_else(|| "неизвестный".to_string())
         })
-        .unwrap_or_else(|| "аноним".to_string());
+        .unwrap_or_else(|| "неизвестный".to_string());
 
     match user_input.parse::<u8>() {
         Ok(count) if count > 0 && count <= 5 => {
@@ -220,8 +220,12 @@ async fn receive_platform_selection(
 ) -> HandlerResult {
     if let Some(platform) = &q.data {
         log::info!(
-            "Пользователь с chat_id={} выбрал платформу {} для устройства {}",
-            q.from.id,
+            "Пользователь {} с chat_id={} выбрал платформу {} для устройства {}",
+            match q.from.username.as_ref() {
+                Some(username) => username,
+                None => "с неизвестным username",
+            },
+            dialogue.chat_id(),
             platform,
             current_device
         );
@@ -240,15 +244,17 @@ async fn receive_platform_selection(
 
             ask_device_platform(&bot, dialogue.chat_id(), next_device).await?;
         } else {
-            let summary = applications.join("\n");
             log::info!(
-                "Пользователь с chat_id={} завершил оформление заявки:\n{}",
-                q.from.id,
-                summary
+                "Пользователь {} с chat_id={} завершил оформление заявки",
+                match q.from.username.as_ref() {
+                    Some(username) => username,
+                    None => "с неизвестным username",
+                },
+                dialogue.chat_id(),
             );
 
             bot.send_message(
-                q.from.id,
+                dialogue.chat_id(),
                 format!(
                     "🎉 Поздравляем! Ваша заявка успешно сформирована. ✅\n\nСпасибо за использование нашего сервиса! 🙏",
                 ),
@@ -264,11 +270,8 @@ async fn receive_platform_selection(
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    log4rs::init_file(
-        dotenv::var("LOG_FILE").unwrap(),
-        Default::default(),
-    )
-    .expect("Ошибка инициализации логгера");
+    log4rs::init_file(dotenv::var("LOG_CONFIG").unwrap(), Default::default())
+        .expect("Ошибка инициализации логгера");
 
     log::info!("Запускаю бота GlebusVPN...");
 
