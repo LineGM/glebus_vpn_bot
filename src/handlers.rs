@@ -1,10 +1,14 @@
 use super::types::{Command, HandlerResult, MyDialogue, State};
+use super::xui_api::ThreeXUiClient;
+use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
+use fast_qr::qr::QRBuilder;
 #[allow(unused_imports)]
 use teloxide::utils::command::BotCommands;
 use teloxide::{
     prelude::*,
     types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup},
 };
+use uuid::Uuid;
 
 pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
     let username = msg
@@ -16,7 +20,7 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
 
     bot.send_message(
         msg.chat.id,
-        "👋 Привет! Добро пожаловать в наш бот. Мы поможем вам подключиться к GlebusVPN. 🚀\n\nВведите количество устройств (1-5):"
+        "👋 Привет! Я помогу вам подключиться к GlebusVPN. 🚀\n\nВведите количество подключаемых устройств (1-5):"
     )
     .await
     .map(|_| ())?;
@@ -97,7 +101,7 @@ pub async fn receive_device_count(bot: Bot, dialogue: MyDialogue, msg: Message) 
 
             bot.send_message(
                 msg.chat.id,
-                "🚀 Отлично! Давайте начнём вводить данные для каждого устройства.",
+                "🚀 Отлично! Теперь укажите, пожалуйста, платформу каждого устройства.",
             )
             .await
             .map(|_| ())?;
@@ -173,6 +177,102 @@ pub async fn receive_platform_selection(
 
         applications.push(format!("Device {}: {}", current_device, platform));
 
+        let base_url = dotenv::var("PANEL_BASE_URL").unwrap();
+        let mut _api = ThreeXUiClient::new(&base_url);
+
+        let admin_login = dotenv::var("PANEL_ADMIN_LOGIN").unwrap();
+        let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD").unwrap();
+
+        let login_result = match _api.login(&admin_login, &admin_password).await {
+            Ok(()) => {
+                log::info!("Login as {} succesfully.", admin_login);
+                true
+            }
+            Err(err) => {
+                log::info!("Login as {} failed with status: {}", admin_login, err);
+                false
+            }
+        };
+
+        if !login_result {
+            bot.send_message(
+                dialogue.chat_id(),
+                "⚠️ Ой, кажется, при доступе к панели сервера что-то пошло не так. 😕\n\nПопробуйте ещё раз. 🔄\n\nЕсли это не поможет, то свяжитесь с администратором.",
+            )
+            .await
+            .map(|_| ())?;
+
+            dialogue.exit().await?;
+
+            return Ok(());
+        }
+
+        let new_client = serde_json::json!({
+            "clients": [{
+                "id": Uuid::new_v4().simple().to_string(),
+                "email": username.to_owned() + "_" + &platform.to_lowercase(),
+                "comment": "Added through GlebusVPN bot.",
+                "flow": "xtls-rprx-vision",
+                "enable": true,
+                "tgId": dialogue.chat_id(),
+                "subId": username.to_owned() + "_" + &platform.to_lowercase()
+            }]
+        });
+
+        let add_client_result = match _api.add_client(1, &new_client).await {
+            Ok(json) => {
+                log::info!("Add client result: {}", json);
+                true
+            }
+            Err(json) => {
+                log::error!("Add client result: {}", json);
+                false
+            }
+        };
+
+        if !add_client_result {
+            bot.send_message(
+                dialogue.chat_id(),
+                "⚠️ Ой, кажется, при добавлении очередного подключения что-то пошло не так. 😕\n\nПопробуйте ещё раз. 🔄\n\nЕсли это не поможет, то свяжитесь с администратором.",
+            )
+            .await
+            .map(|_| ())?;
+
+            dialogue.exit().await?;
+
+            return Ok(());
+        }
+
+        let sub_url = format!(
+            "{}/{}",
+            dotenv::var("SUB_BASE_URL").unwrap(),
+            username.to_owned() + "_" + &platform.to_lowercase()
+        );
+
+        let qrcode = QRBuilder::new(sub_url.clone()).build().unwrap();
+        let image_name = username.to_owned() + "_" + &platform.to_lowercase() + ".png";
+
+        let _img = ImageBuilder::default()
+            .shape(Shape::RoundedSquare)
+            .background_color([255, 255, 255, 0])
+            .fit_width(600)
+            .to_file(&qrcode, &image_name);
+
+        bot.send_photo(
+            dialogue.chat_id(),
+            teloxide::types::InputFile::file(image_name),
+        )
+        .await
+        .map(|_| ())?;
+
+        bot.send_message(
+            dialogue.chat_id(),
+            format!("`{}`\n\nВставьте эту ссылку в приложение Hiddify, оно есть на всех предложенных платформах", &sub_url)
+        )
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .await
+        .map(|_| ())?;
+
         if current_device < total_devices {
             let next_device = current_device + 1;
             dialogue
@@ -196,7 +296,7 @@ pub async fn receive_platform_selection(
 
             bot.send_message(
                 dialogue.chat_id(),
-                "🎉 Поздравляем! Ваша заявка успешно сформирована. ✅",
+                "🎉 Поздравляем! Ваши подключения успешно созданы. ✅",
             )
             .await
             .map(|_| ())?;

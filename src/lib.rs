@@ -3,6 +3,7 @@ use teloxide::dispatching::Dispatcher;
 mod handlers;
 mod schema;
 mod types;
+mod xui_api;
 
 pub use types::{Command, HandlerResult, MyDialogue, State};
 
