@@ -13,10 +13,16 @@ pub enum State {
 }
 
 #[derive(BotCommands, Clone)]
-#[command(rename_rule = "lowercase")]
+#[command(
+    rename_rule = "lowercase",
+    description = "Доступны следующие команды:"
+)]
 pub enum Command {
+    #[command(description = "Показывает этот текст.")]
     Help,
+    #[command(description = "Запускает операцию добавления подключений к GlebusVPN.")]
     Start,
+    #[command(description = "Прерывает текущую операцию.")]
     Cancel,
 }
 
