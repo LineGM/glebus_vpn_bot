@@ -19,7 +19,6 @@ RUN cargo fetch --locked
 COPY src ./src
 
 # Copy configuration files
-COPY log4rs.yml ./
 COPY .env ./
 
 # Build release binary
@@ -38,7 +37,6 @@ RUN apt-get update && \
 COPY --from=builder /app/target/release/glebus_vpn_bot /usr/local/bin/
 
 # Copy configuration files
-COPY --from=builder /app/log4rs.yml /home/botuser/log4rs.yml
 COPY --from=builder /app/.env /home/botuser/.env
 
 # Create non-root user and set permissions
