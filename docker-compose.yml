@@ -5,6 +5,5 @@ services:
       dockerfile: Dockerfile
     container_name: glebus-vpn-bot
     volumes:
-      - ./log4rs.yml:/home/botuser/log4rs.yml:ro
       - ./.env:/home/botuser/.env:ro
     restart: unless-stopped
