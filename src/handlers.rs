@@ -10,12 +10,15 @@ use teloxide::{
 };
 use uuid::Uuid;
 
-pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
-    let username = msg
-        .from
+fn get_username(msg: &Message) -> &str {
+    msg.from
         .as_ref()
         .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
+        .unwrap_or("unknown")
+}
+
+pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
+    let username = get_username(&msg);
     log::info!("User {} (chat_id={}) called /start", username, msg.chat.id);
 
     bot.send_message(
@@ -30,11 +33,7 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
 }
 
 pub async fn help(bot: Bot, msg: Message) -> HandlerResult {
-    let username = msg
-        .from
-        .as_ref()
-        .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
+    let username = get_username(&msg);
     log::info!("User {} (chat_id={}) called /help", username, msg.chat.id);
 
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
@@ -44,11 +43,7 @@ pub async fn help(bot: Bot, msg: Message) -> HandlerResult {
 }
 
 pub async fn cancel(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
-    let username = msg
-        .from
-        .as_ref()
-        .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
+    let username = get_username(&msg);
     log::info!("User {} (chat_id={}) called /cancel", username, msg.chat.id);
 
     bot.send_message(msg.chat.id, "❌ Отменяем текущую операцию.")
@@ -60,11 +55,7 @@ pub async fn cancel(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResu
 
 pub async fn invalid_state(bot: Bot, msg: Message) -> HandlerResult {
     let user_input = msg.text().unwrap_or_default();
-    let username = msg
-        .from
-        .as_ref()
-        .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
+    let username = get_username(&msg);
 
     log::warn!(
         "User {} (chat_id={}) entered an incorrect value: {}",
@@ -84,11 +75,7 @@ pub async fn invalid_state(bot: Bot, msg: Message) -> HandlerResult {
 
 pub async fn receive_device_count(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
     let user_input = msg.text().unwrap_or_default();
-    let username = msg
-        .from
-        .as_ref()
-        .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
+    let username = get_username(&msg);
 
     match user_input.parse::<u8>() {
         Ok(count) if (1..=5).contains(&count) => {

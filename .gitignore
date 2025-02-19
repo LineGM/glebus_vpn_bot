@@ -1,4 +1,4 @@
 /target
 Cargo.lock
-glebus_vpn_bot.log
 .env
+/log
