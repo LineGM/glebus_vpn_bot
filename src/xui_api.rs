@@ -212,4 +212,30 @@ impl ThreeXUiClient {
 
         Ok(false)
     }
+
+    pub async fn get_client_connections(&self, tg_id: i64) -> Result<String, MyError> {
+        let inbound = self.get_inbound(1).await?;
+
+        if let Some(settings_str) = inbound
+            .get("obj")
+            .and_then(|obj| obj.get("settings").and_then(|s| s.as_str()))
+        {
+            if let Ok(settings_json) = serde_json::from_str::<Value>(settings_str) {
+                if let Some(clients) = settings_json.get("clients").and_then(|c| c.as_array()) {
+                    let user_clients: Vec<&serde_json::Value> = clients
+                        .iter()
+                        .filter(|client| {
+                            client.get("tgId").and_then(|id| id.as_i64()) == Some(tg_id)
+                        })
+                        .collect();
+
+                    if !user_clients.is_empty() {
+                        return Ok(serde_json::to_string_pretty(&user_clients)?);
+                    }
+                }
+            }
+        }
+
+        Ok("{}".to_string())
+    }
 }
