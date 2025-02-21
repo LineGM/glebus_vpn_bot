@@ -1,4 +1,5 @@
 use super::error::MyError;
+use super::messages::Messages;
 use super::types::{Command, HandlerResult, MyDialogue, State};
 use super::xui_api::ThreeXUiClient;
 use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
@@ -49,11 +50,9 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
 
     log::info!("User {} (chat_id={}) called /start", username, chat_id);
 
-    const WELCOME_MESSAGE: &str = "👋 Привет! Я помогу вам подключиться к GlebusVPN. 🚀\n\n\
-                                   Введите количество подключаемых устройств (1-5):";
-
     // Send a welcome message to the user.
-    bot.send_message(chat_id, WELCOME_MESSAGE).await?;
+    bot.send_message(dialogue.chat_id(), Messages::ru().welcome())
+        .await?;
 
     // Update the dialogue state to ReceiveDeviceCount.
     dialogue.update(State::ReceiveDeviceCount).await?;
@@ -63,8 +62,8 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
 
 /// Handles the `/help` command by sending a list of available commands to the user.
 ///
-/// This function extracts the username and chat ID from the received message, logs 
-/// the `/help` command usage, and sends a message to the user with the descriptions 
+/// This function extracts the username and chat ID from the received message, logs
+/// the `/help` command usage, and sends a message to the user with the descriptions
 /// of all available commands.
 ///
 /// # Arguments
@@ -85,6 +84,7 @@ pub async fn help(bot: Bot, msg: Message) -> HandlerResult {
     // Send a message with the descriptions of all available commands to the user
     bot.send_message(chat_id, Command::descriptions().to_string())
         .await?;
+
     Ok(())
 }
 
@@ -112,7 +112,7 @@ pub async fn cancel(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResu
     log::info!("User {} (chat_id={}) called /cancel", username, chat_id);
 
     // Send a cancellation message to the user
-    bot.send_message(chat_id, "❌ Отменяем текущую операцию.")
+    bot.send_message(chat_id, Messages::ru().cancel_operation())
         .await?;
     // Exit the dialogue
     dialogue.exit().await?;
@@ -147,11 +147,8 @@ pub async fn invalid_state(bot: Bot, msg: Message) -> HandlerResult {
     );
 
     // Send a message to the user indicating that the input was incorrect
-    bot.send_message(
-        chat_id,
-        "⚠️ Ой, кажется, вы ввели что-то непонятное. 😅\n\nИспользуйте /help для справки. 😊",
-    )
-    .await?;
+    bot.send_message(chat_id, Messages::ru().invalid_state())
+        .await?;
     Ok(())
 }
 
@@ -224,11 +221,8 @@ async fn handle_valid_device_count(
     );
 
     // Send a message to the user asking for the platform of each device
-    bot.send_message(
-        chat_id,
-        "🚀 Отлично! Теперь укажите, пожалуйста, платформу каждого устройства.",
-    )
-    .await?;
+    bot.send_message(chat_id, Messages::ru().select_platform())
+        .await?;
 
     // Update the dialogue state to ReceiveDeviceInfo with the given device count
     // and an empty list of applications
@@ -274,13 +268,9 @@ async fn handle_excessive_device_count(
     );
 
     // Send a message to the user
-    bot.send_message(
-        chat_id,
-        "❌ Максимальное количество устройств — 5. 😔\n\n\
-         Если вам нужно больше, обратитесь к администратору @LineGM. Спасибо за понимание! 🙌",
-    )
-    .await?;
-    
+    bot.send_message(chat_id, Messages::ru().excessive_devices())
+        .await?;
+
     Ok(())
 }
 
@@ -314,7 +304,8 @@ async fn handle_invalid_device_count(
     );
 
     // Send a message to the user
-    bot.send_message(chat_id, "⚠️ Пожалуйста, введите число от 1 до 5. 🚀").await?;
+    bot.send_message(chat_id, Messages::ru().invalid_device_count())
+        .await?;
 
     // Return a successful HandlerResult
     Ok(())
@@ -343,7 +334,7 @@ async fn ask_device_platform(bot: &Bot, chat_id: ChatId, device_num: u8) -> Hand
         .collect::<Vec<_>>();
 
     // Send the message with the inline keyboard to the user
-    bot.send_message(chat_id, format!("📱 Устройство #{}:", device_num))
+    bot.send_message(chat_id, Messages::ru().device_number(device_num))
         .reply_markup(InlineKeyboardMarkup::new([platforms])) // Attach the keyboard markup
         .await?;
 
@@ -558,13 +549,9 @@ async fn send_error_message(
     dialogue: &MyDialogue,
     error_context: &str,
 ) -> HandlerResult {
-    // Format the error message with the context
-    let message = format!("⚠️ Ой, кажется, в {} что-то пошло не так. 😕\n\n\
-                          Попробуйте ещё раз. 🔄\n\n\
-                          Если это не поможет, то свяжитесь с администратором.", error_context);
-
     // Send the message to the user
-    bot.send_message(dialogue.chat_id(), message).await?;
+    bot.send_message(dialogue.chat_id(), Messages::ru().error(error_context))
+        .await?;
 
     // Return a successful HandlerResult
     Ok(())
@@ -626,12 +613,9 @@ async fn send_connection_info(
     }
 
     // Send the connection information string to the user
-    bot.send_message(
-        dialogue.chat_id(),
-        format!("`{}`\n\nВставьте эту ссылку в приложение Hiddify, оно есть на всех предложенных платформах", &sub_url),
-    )
-    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-    .await?;
+    bot.send_message(dialogue.chat_id(), Messages::ru().connection_info(&sub_url))
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .await?;
 
     Ok(())
 }
@@ -696,11 +680,8 @@ async fn handle_completion(bot: &Bot, dialogue: MyDialogue, username: &str) -> H
     );
 
     // Send a completion message to the user
-    bot.send_message(
-        dialogue.chat_id(),
-        "🎉 Поздравляем! Ваши подключения успешно созданы. ✅",
-    )
-    .await?;
+    bot.send_message(dialogue.chat_id(), Messages::ru().completion())
+        .await?;
 
     // Exit the dialogue as the process is complete
     dialogue.exit().await?;

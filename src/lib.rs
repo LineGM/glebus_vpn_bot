@@ -3,6 +3,7 @@ use teloxide::dispatching::Dispatcher;
 
 pub mod error;
 pub mod handlers;
+pub mod messages;
 pub mod schema;
 pub mod types;
 pub mod xui_api;

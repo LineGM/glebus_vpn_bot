@@ -31,7 +31,7 @@ pub fn schema() -> UpdateHandler<MyError> {
                 // Handle the help command
                 .branch(case![super::Command::Help].endpoint(handlers::help))
                 // Handle the start command
-                .branch(case![super::Command::Start].endpoint(handlers::start))
+                .branch(case![super::Command::Start].endpoint(handlers::start)),
         )
         // Handle the cancel command in any state
         .branch(case![super::Command::Cancel].endpoint(handlers::cancel));
@@ -41,13 +41,15 @@ pub fn schema() -> UpdateHandler<MyError> {
         // Handle the commands
         .branch(command_handler)
         // Handle the ReceiveDeviceCount state
-        .branch(
-            case![State::ReceiveDeviceCount].endpoint(handlers::receive_device_count)
-        )
+        .branch(case![State::ReceiveDeviceCount].endpoint(handlers::receive_device_count))
         // Handle the ReceiveDeviceInfo state
         .branch(
-            case![State::ReceiveDeviceInfo { total_devices, current_device, applications }]
-                .endpoint(handlers::receive_platform_selection)
+            case![State::ReceiveDeviceInfo {
+                total_devices,
+                current_device,
+                applications
+            }]
+            .endpoint(handlers::receive_platform_selection),
         )
         // Ignore any other message
         .branch(dptree::endpoint(handlers::invalid_state));
@@ -55,8 +57,12 @@ pub fn schema() -> UpdateHandler<MyError> {
     // Create a callback handler that handles the ReceiveDeviceInfo state
     let callback_handler = Update::filter_callback_query().branch(
         // Handle the ReceiveDeviceInfo state
-        case![State::ReceiveDeviceInfo { total_devices, current_device, applications }]
-            .endpoint(handlers::receive_platform_selection)
+        case![State::ReceiveDeviceInfo {
+            total_devices,
+            current_device,
+            applications
+        }]
+        .endpoint(handlers::receive_platform_selection),
     );
 
     // Create a dialogue that enters the specified states

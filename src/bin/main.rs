@@ -1,3 +1,4 @@
+use glebus_vpn_bot::run;
 use log::LevelFilter;
 use log4rs::{
     append::{console::ConsoleAppender, file::FileAppender},
@@ -5,11 +6,10 @@ use log4rs::{
     encode::pattern::PatternEncoder,
     filter::threshold::ThresholdFilter,
 };
-use glebus_vpn_bot::run;
 
 /// Initializes and starts the main application.
 ///
-/// This function sets up the logging configuration using log4rs, and then starts the GlebusVPN bot. 
+/// This function sets up the logging configuration using log4rs, and then starts the GlebusVPN bot.
 /// If an error occurs during the bot's execution, it logs the error message.
 ///
 /// # Returns
@@ -37,9 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a file appender
     let file_appender = FileAppender::builder()
-        .encoder(
-            Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")),
-        )
+        .encoder(Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")))
         .build("log/glebus_vpn_bot.log")?;
 
     // Create a config builder

@@ -106,7 +106,7 @@ impl ThreeXUiClient {
         let json: Value = response.json().await?;
         Ok(json)
     }
-    
+
     /// Retrieves the inbound configuration for a specified inbound ID.
     ///
     /// This function sends a GET request to "/panel/api/inbounds/get/<inbound_id>"
