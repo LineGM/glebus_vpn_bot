@@ -1,11 +1,12 @@
 use super::{handlers, types::State};
+use crate::error::MyError;
 use dptree::case;
 use teloxide::{
     dispatching::{dialogue, dialogue::InMemStorage, UpdateHandler},
     prelude::*,
 };
 
-pub fn schema() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub fn schema() -> UpdateHandler<MyError> {
     let command_handler = teloxide::filter_command::<super::Command, _>()
         .branch(
             case![State::Start]

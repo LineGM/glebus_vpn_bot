@@ -1,3 +1,4 @@
+use crate::error::MyError;
 use log::LevelFilter;
 use log4rs::{
     append::{console::ConsoleAppender, file::FileAppender},
@@ -7,18 +8,19 @@ use log4rs::{
 };
 use teloxide::dispatching::Dispatcher;
 
-mod handlers;
-mod schema;
-mod types;
-mod xui_api;
+pub mod error;
+pub mod handlers;
+pub mod schema;
+pub mod types;
+pub mod xui_api;
 
 pub use types::{Command, HandlerResult, MyDialogue, State};
 
-pub async fn run() {
+pub async fn run() -> Result<(), MyError> {
     dotenv::dotenv().ok();
 
-    let console_log_level = log::LevelFilter::Info;
-    let file_log_level = log::LevelFilter::Trace;
+    let console_log_level = LevelFilter::Info;
+    let file_log_level = LevelFilter::Trace;
 
     let console_appender = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")))
@@ -26,8 +28,7 @@ pub async fn run() {
 
     let file_appender = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")))
-        .build("log/glebus_vpn_bot.log")
-        .unwrap();
+        .build("log/glebus_vpn_bot.log")?;
 
     let config = Config::builder()
         .appender(
@@ -45,10 +46,9 @@ pub async fn run() {
                 .appender("console_appender")
                 .appender("file_appender")
                 .build(LevelFilter::Trace),
-        )
-        .unwrap();
+        )?;
 
-    log4rs::init_config(config).unwrap();
+    log4rs::init_config(config)?;
 
     log::info!("Starting GlebusVPN bot...");
 
@@ -62,4 +62,6 @@ pub async fn run() {
         .build()
         .dispatch()
         .await;
+
+    Ok(())
 }

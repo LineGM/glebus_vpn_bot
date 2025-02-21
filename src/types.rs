@@ -1,3 +1,4 @@
+use crate::error::MyError;
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
 
 #[derive(Clone, Default)]
@@ -13,10 +14,7 @@ pub enum State {
 }
 
 #[derive(BotCommands, Clone)]
-#[command(
-    rename_rule = "lowercase",
-    description = "Доступны следующие команды:"
-)]
+#[command(rename_rule = "lowercase", description = "Доступны следующие команды:")]
 pub enum Command {
     #[command(description = "Показывает этот текст.")]
     Help,
@@ -27,4 +25,4 @@ pub enum Command {
 }
 
 pub type MyDialogue = Dialogue<State, InMemStorage<State>>;
-pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+pub type HandlerResult = Result<(), MyError>;
