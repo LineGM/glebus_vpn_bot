@@ -50,12 +50,40 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
 
     log::info!("User {} (chat_id={}) called /start", username, chat_id);
 
-    // Send a welcome message to the user.
-    bot.send_message(dialogue.chat_id(), Messages::ru().welcome())
-        .await?;
+    let base_url = dotenv::var("PANEL_BASE_URL")?;
+    let mut api = ThreeXUiClient::new(&base_url);
 
-    // Update the dialogue state to ReceiveDeviceCount.
-    dialogue.update(State::ReceiveDeviceCount).await?;
+    let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+    let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+    if let Err(e) = api.login(&admin_login, &admin_password).await {
+        log::error!("Failed to login to panel: {}", e);
+        bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+            .await?;
+        return Ok(());
+    }
+
+    match api.has_existing_client(chat_id.0).await {
+        Ok(true) => {
+            bot.send_message(chat_id, Messages::ru().already_connected())
+                .await?;
+            return Ok(());
+        }
+        Ok(false) => {
+            bot.send_message(dialogue.chat_id(), Messages::ru().welcome())
+                .await?;
+            dialogue.update(State::ReceiveDeviceCount).await?;
+        }
+        Err(e) => {
+            log::error!("Failed to check existing client: {}", e);
+            bot.send_message(
+                chat_id,
+                Messages::ru().error("проверке существующих подключений"),
+            )
+            .await?;
+            return Ok(());
+        }
+    }
 
     Ok(())
 }
