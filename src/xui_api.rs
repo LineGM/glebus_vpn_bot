@@ -197,23 +197,15 @@ impl ThreeXUiClient {
     pub async fn has_existing_client(&self, tg_id: i64) -> Result<bool, MyError> {
         let inbound = self.get_inbound(1).await?;
 
-        if let Some(obj) = inbound.as_object() {
-            if let Some(obj) = obj.get("obj") {
-                if let Some(settings) = obj.get("settings") {
-                    if let Some(settings_str) = settings.as_str() {
-                        if let Ok(settings_json) = serde_json::from_str::<Value>(settings_str) {
-                            if let Some(clients) =
-                                settings_json.get("clients").and_then(|c| c.as_array())
-                            {
-                                return Ok(clients.iter().any(|client| {
-                                    client
-                                        .get("tgId")
-                                        .and_then(|id| id.as_i64())
-                                        .map_or(false, |id| id == tg_id)
-                                }));
-                            }
-                        }
-                    }
+        if let Some(settings_str) = inbound
+            .get("obj")
+            .and_then(|obj| obj.get("settings").and_then(|s| s.as_str()))
+        {
+            if let Ok(settings_json) = serde_json::from_str::<Value>(settings_str) {
+                if let Some(clients) = settings_json.get("clients").and_then(|c| c.as_array()) {
+                    return Ok(clients.iter().any(|client| {
+                        client.get("tgId").and_then(|id| id.as_i64()) == Some(tg_id)
+                    }));
                 }
             }
         }
