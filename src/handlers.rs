@@ -65,19 +65,24 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
 
     match api.has_existing_client(chat_id.0).await {
         Ok(true) => {
-            let keyboard = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
-                Messages::ru().show_connections(),
-                "show_connections",
-            )]]);
-            
+            let keyboard = InlineKeyboardMarkup::new([[
+                InlineKeyboardButton::callback(
+                    Messages::ru().show_connections(),
+                    "show_connections",
+                ),
+                InlineKeyboardButton::callback(
+                    Messages::ru().edit_connections(),
+                    "edit_connections",
+                ),
+            ]]);
+
             bot.send_message(chat_id, Messages::ru().already_connected())
                 .reply_markup(keyboard)
                 .await?;
         }
         Ok(false) => {
-            bot.send_message(dialogue.chat_id(), Messages::ru().welcome())
-                .await?;
-            dialogue.update(State::ReceiveDeviceCount).await?;
+            dialogue.exit().await?;
+            bot.send_message(chat_id, Messages::ru().welcome()).await?;
         }
         Err(e) => {
             log::error!("Failed to check existing client: {}", e);
@@ -741,23 +746,29 @@ pub async fn show_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
         match api.get_client_connections(chat_id.0).await {
             Ok(connections_str) => {
                 let sub_base_url = dotenv::var("SUB_BASE_URL")?;
-                
-                if let Ok(connections) = serde_json::from_str::<Vec<serde_json::Value>>(&connections_str) {
+
+                if let Ok(connections) =
+                    serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
+                {
                     bot.send_message(chat_id, Messages::ru().your_connections())
                         .await?;
-                    
+
                     let mut formatted_connections = String::new();
-                    
+
                     for connection in connections {
                         if let (Some(email), Some(sub_id)) = (
                             connection.get("email").and_then(|e| e.as_str()),
-                            connection.get("subId").and_then(|s| s.as_str())
+                            connection.get("subId").and_then(|s| s.as_str()),
                         ) {
                             let sub_url = format!("{}/{}", sub_base_url, sub_id);
-                            formatted_connections.push_str(&format!("*{}*: `{}`\n\n", email.replace("_", " \\| "), sub_url));
+                            formatted_connections.push_str(&format!(
+                                "*{}*: `{}`\n\n",
+                                email.replace("_", " \\| "),
+                                sub_url
+                            ));
                         }
                     }
-                    
+
                     if !formatted_connections.is_empty() {
                         bot.send_message(chat_id, format!("{}", formatted_connections))
                             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
@@ -778,6 +789,284 @@ pub async fn show_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
             }
         }
     }
+
+    Ok(())
+}
+
+pub async fn edit_connections(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+        let action = q.data.as_deref().unwrap_or("");
+
+        match action {
+            "edit_action_add" => {
+                // Получаем текущие подключения и обрабатываем добавление
+                let connections = get_current_connections(&bot, &dialogue).await?;
+                handle_add_device(&bot, &dialogue, chat_id, &connections).await?;
+            }
+            "edit_action_change" => {
+                // Получаем текущие подключения и обрабатываем изменение платформы
+                let connections = get_current_connections(&bot, &dialogue).await?;
+                handle_change_platform(&bot, &dialogue, chat_id, &connections).await?;
+            }
+            "edit_action_delete" => {
+                // Получаем текущие подключения и обрабатываем удаление
+                let connections = get_current_connections(&bot, &dialogue).await?;
+                handle_delete_device(&bot, &dialogue, chat_id, &connections).await?;
+            }
+            "edit_action_back" => {
+                // Возвращаемся к начальному состоянию
+                dialogue.exit().await?;
+                bot.send_message(chat_id, Messages::ru().welcome()).await?;
+            }
+            data if data.starts_with("select_device_") => {
+                // Обрабатываем выбор устройства для изменения или удаления
+                if let Some(device_num) = data.strip_prefix("select_device_").and_then(|n| n.parse::<u8>().ok()) {
+                    let state = dialogue.get().await?.unwrap_or_default();
+                    if let State::EditConnections { action: Some(action_type), .. } = state {
+                        match action_type.as_str() {
+                            "change" => {
+                                // Показываем выбор новой платформы
+                                ask_device_platform(&bot, chat_id, device_num).await?;
+                                dialogue.update(State::ReceiveDeviceInfo {
+                                    total_devices: device_num,
+                                    current_device: device_num,
+                                    applications: vec![],
+                                }).await?;
+                            }
+                            "delete" => {
+                                // Удаляем выбранное устройство
+                                delete_selected_device(&bot, &dialogue, chat_id, device_num).await?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {
+                show_edit_menu(&bot, &dialogue).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Получает текущие подключения пользователя
+async fn get_current_connections(
+    bot: &Bot,
+    dialogue: &MyDialogue,
+) -> Result<Vec<serde_json::Value>, MyError> {
+    let base_url = dotenv::var("PANEL_BASE_URL")?;
+    let mut api = ThreeXUiClient::new(&base_url);
+
+    let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+    let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+    if let Err(e) = api.login(&admin_login, &admin_password).await {
+        log::error!("Failed to login to panel: {}", e);
+        bot.send_message(dialogue.chat_id(), Messages::ru().error("панели сервера"))
+            .await?;
+        return Ok(vec![]);
+    }
+
+    match api.get_client_connections(dialogue.chat_id().0).await {
+        Ok(connections_str) => {
+            serde_json::from_str(&connections_str).map_err(MyError::from)
+        }
+        Err(e) => {
+            log::error!("Failed to get client connections: {}", e);
+            Ok(vec![])
+        }
+    }
+}
+
+/// Удаляет выбранное устройство
+async fn delete_selected_device(
+    bot: &Bot,
+    dialogue: &MyDialogue,
+    chat_id: ChatId,
+    device_num: u8,
+) -> HandlerResult {
+    let connections = get_current_connections(bot, dialogue).await?;
+    
+    if let Some(connection) = connections.get(device_num as usize - 1) {
+        if let Some(uuid) = connection.get("id").and_then(|id| id.as_str()) {
+            let base_url = dotenv::var("PANEL_BASE_URL")?;
+            let mut api = ThreeXUiClient::new(&base_url);
+
+            let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+            let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+            if let Err(e) = api.login(&admin_login, &admin_password).await {
+                log::error!("Failed to login to panel: {}", e);
+                bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+                    .await?;
+                return Ok(());
+            }
+
+            match api.delete_client(1, uuid).await {
+                Ok(_) => {
+                    bot.send_message(chat_id, "✅ Устройство успешно удалено!")
+                        .await?;
+                    dialogue.exit().await?;
+                    show_edit_menu(&bot, &dialogue).await?;
+                }
+                Err(e) => {
+                    log::error!("Failed to delete client: {}", e);
+                    bot.send_message(chat_id, Messages::ru().error("удалении устройства"))
+                        .await?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Показывает меню редактирования
+async fn show_edit_menu(bot: &Bot, dialogue: &MyDialogue) -> HandlerResult {
+    let connections = get_current_connections(bot, dialogue).await?;
+    let available_slots = MAX_DEVICES as usize - connections.len();
+
+    let mut keyboard = vec![vec![]];
+    
+    if available_slots > 0 {
+        keyboard[0].push(InlineKeyboardButton::callback(
+            Messages::ru().add_device(),
+            "edit_action_add",
+        ));
+    }
+
+    keyboard[0].push(InlineKeyboardButton::callback(
+        Messages::ru().change_platform(),
+        "edit_action_change",
+    ));
+
+    keyboard[0].push(InlineKeyboardButton::callback(
+        Messages::ru().delete_device(),
+        "edit_action_delete",
+    ));
+
+    keyboard.push(vec![InlineKeyboardButton::callback(
+        Messages::ru().back(),
+        "edit_action_back",
+    )]);
+
+    let mut message = format!(
+        "{}\n\n",
+        Messages::ru().connection_list_header(available_slots as u8)
+    );
+
+    for (i, connection) in connections.iter().enumerate() {
+        if let Some(email) = connection.get("email").and_then(|e| e.as_str()) {
+            let platform = email.split('_').last().unwrap_or("unknown");
+            message.push_str(&format!(
+                "{}\n",
+                Messages::ru().connection_item((i + 1) as u8, platform)
+            ));
+        }
+    }
+
+    bot.send_message(dialogue.chat_id(), message)
+        .reply_markup(InlineKeyboardMarkup::new(keyboard))
+        .await?;
+
+    Ok(())
+}
+
+/// Обрабатывает действие добавления нового устройства
+async fn handle_add_device(
+    bot: &Bot,
+    dialogue: &MyDialogue,
+    chat_id: ChatId,
+    connections: &[serde_json::Value],
+) -> HandlerResult {
+    if connections.len() >= MAX_DEVICES as usize {
+        bot.send_message(chat_id, Messages::ru().excessive_devices())
+            .await?;
+        return Ok(());
+    }
+
+    // Запрашиваем платформу для нового устройства
+    ask_device_platform(bot, chat_id, (connections.len() + 1) as u8).await?;
+
+    // Обновляем состояние диалога
+    dialogue
+        .update(State::ReceiveDeviceInfo {
+            total_devices: (connections.len() + 1) as u8,
+            current_device: (connections.len() + 1) as u8,
+            applications: connections
+                .iter()
+                .filter_map(|c| c.get("email").and_then(|e| e.as_str()))
+                .map(|e| e.to_string())
+                .collect(),
+        })
+        .await?;
+
+    Ok(())
+}
+
+/// Обрабатывает действие изменения платформы устройства
+async fn handle_change_platform(
+    bot: &Bot,
+    dialogue: &MyDialogue,
+    chat_id: ChatId,
+    connections: &[serde_json::Value],
+) -> HandlerResult {
+    // Создаем клавиатуру с номерами устройств
+    let keyboard: Vec<Vec<InlineKeyboardButton>> = connections
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            vec![InlineKeyboardButton::callback(
+                format!("Устройство {}", i + 1),
+                format!("select_device_{}", i + 1),
+            )]
+        })
+        .collect();
+
+    bot.send_message(chat_id, Messages::ru().select_device_to_edit())
+        .reply_markup(InlineKeyboardMarkup::new(keyboard))
+        .await?;
+
+    dialogue
+        .update(State::EditConnections {
+            selected_device: None,
+            action: Some("change".to_string()),
+        })
+        .await?;
+
+    Ok(())
+}
+
+/// Обрабатывает действие удаления устройства
+async fn handle_delete_device(
+    bot: &Bot,
+    dialogue: &MyDialogue,
+    chat_id: ChatId,
+    connections: &[serde_json::Value],
+) -> HandlerResult {
+    // Создаем клавиатуру с номерами устройств
+    let keyboard: Vec<Vec<InlineKeyboardButton>> = connections
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            vec![InlineKeyboardButton::callback(
+                format!("Устройство {}", i + 1),
+                format!("delete_device_{}", i + 1),
+            )]
+        })
+        .collect();
+
+    bot.send_message(chat_id, Messages::ru().select_device_to_edit())
+        .reply_markup(InlineKeyboardMarkup::new(keyboard))
+        .await?;
+
+    dialogue
+        .update(State::EditConnections {
+            selected_device: None,
+            action: Some("delete".to_string()),
+        })
+        .await?;
 
     Ok(())
 }

@@ -80,4 +80,40 @@ impl RussianMessages {
     pub fn no_active_connections(&self) -> String {
         "Нет активных подключений".to_string()
     }
+
+    pub fn edit_connections(&self) -> String {
+        "✏️ Редактировать подключения".to_string()
+    }
+
+    pub fn connection_list_header(&self, available_slots: u8) -> String {
+        format!("📱 Ваши подключения (доступно устройств: {})", available_slots)
+    }
+
+    pub fn connection_item(&self, number: u8, platform: &str) -> String {
+        format!("{}. {}", number, platform)
+    }
+
+    pub fn edit_actions(&self) -> String {
+        "Выберите действие:".to_string()
+    }
+
+    pub fn add_device(&self) -> String {
+        "➕ Добавить устройство".to_string()
+    }
+
+    pub fn change_platform(&self) -> String {
+        "🔄 Изменить платформу".to_string()
+    }
+
+    pub fn delete_device(&self) -> String {
+        "❌ Удалить устройство".to_string()
+    }
+
+    pub fn back(&self) -> String {
+        "⬅️ Вернуться".to_string()
+    }
+
+    pub fn select_device_to_edit(&self) -> String {
+        "Выберите номер устройства:".to_string()
+    }
 }

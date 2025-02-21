@@ -65,10 +65,25 @@ pub fn schema() -> UpdateHandler<MyError> {
             .endpoint(handlers::receive_platform_selection),
         )
         // Добавляем обработку callback-запроса show_connections
-        .branch(dptree::filter(|q: CallbackQuery| {
-            q.data.as_ref().map(|data| data == "show_connections").unwrap_or(false)
-        })
-        .endpoint(handlers::show_connections));
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "show_connections")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::show_connections),
+        )
+        // Добавляем обработку callback-запроса редактирования
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("edit_"))
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::edit_connections),
+        );
 
     // Create a dialogue that enters the specified states
     dialogue::enter::<Update, InMemStorage<State>, State, _>()

@@ -11,6 +11,10 @@ pub enum State {
         current_device: u8,
         applications: Vec<String>,
     },
+    EditConnections {
+        selected_device: Option<u8>,
+        action: Option<String>,
+    },
 }
 
 #[derive(BotCommands, Clone)]

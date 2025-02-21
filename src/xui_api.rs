@@ -194,6 +194,38 @@ impl ThreeXUiClient {
         Ok(json)
     }
 
+    pub async fn update_client(&self, uuid: &str, client_config: &Value) -> Result<Value, MyError> {
+        let url = format!("{}/panel/api/inbounds/updateClient/{}", self.base_url, uuid);
+        let response = self
+            .with_cookie(
+                self.client
+                    .post(&url)
+                    .header(CONTENT_TYPE, "application/json")
+                    .json(client_config),
+            )
+            .send()
+            .await?;
+        let json: Value = response.json().await?;
+        Ok(json)
+    }
+
+    pub async fn delete_client(&self, inbound_id: u32, uuid: &str) -> Result<Value, MyError> {
+        let url = format!(
+            "{}/panel/api/inbounds/{}/delClient/{}",
+            self.base_url, inbound_id, uuid
+        );
+        let response = self
+            .with_cookie(
+                self.client
+                    .post(&url)
+                    .header(CONTENT_TYPE, "application/json"),
+            )
+            .send()
+            .await?;
+        let json: Value = response.json().await?;
+        Ok(json)
+    }
+
     pub async fn has_existing_client(&self, tg_id: i64) -> Result<bool, MyError> {
         let inbound = self.get_inbound(1).await?;
 
