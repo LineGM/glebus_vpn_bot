@@ -1,11 +1,4 @@
 use crate::error::MyError;
-use log::LevelFilter;
-use log4rs::{
-    append::{console::ConsoleAppender, file::FileAppender},
-    config::{Appender, Config, Root},
-    encode::pattern::PatternEncoder,
-    filter::threshold::ThresholdFilter,
-};
 use teloxide::dispatching::Dispatcher;
 
 pub mod error;
@@ -16,50 +9,38 @@ pub mod xui_api;
 
 pub use types::{Command, HandlerResult, MyDialogue, State};
 
+/// Starts the GlebusVPN bot and dispatches updates.
+///
+/// This function initializes the bot using the environment configuration,
+/// sets up the dispatcher with the schema, and enables a control-C handler
+/// for graceful shutdown. It then starts dispatching updates asynchronously.
+///
+/// # Returns
+///
+/// A `Result` indicating success or failure of the bot's execution.
+///
+/// # Errors
+///
+/// This function may return an error if the environment configuration is
+/// invalid or if the bot fails to start.
 pub async fn run() -> Result<(), MyError> {
-    dotenv::dotenv().ok();
-
-    let console_log_level = LevelFilter::Info;
-    let file_log_level = LevelFilter::Trace;
-
-    let console_appender = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")))
-        .build();
-
-    let file_appender = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")))
-        .build("log/glebus_vpn_bot.log")?;
-
-    let config = Config::builder()
-        .appender(
-            Appender::builder()
-                .filter(Box::new(ThresholdFilter::new(console_log_level)))
-                .build("console_appender", Box::new(console_appender)),
-        )
-        .appender(
-            Appender::builder()
-                .filter(Box::new(ThresholdFilter::new(file_log_level)))
-                .build("file_appender", Box::new(file_appender)),
-        )
-        .build(
-            Root::builder()
-                .appender("console_appender")
-                .appender("file_appender")
-                .build(LevelFilter::Trace),
-        )?;
-
-    log4rs::init_config(config)?;
-
     log::info!("Starting GlebusVPN bot...");
 
+    // Initialize the bot using the environment configuration
     let bot = teloxide::Bot::from_env();
 
+    // Set up the dispatcher with the schema
     Dispatcher::builder(bot, schema::schema())
+        // Dependencies are services that can be used by the handlers
         .dependencies(dptree::deps![
+            // We use an in-memory storage to store the dialogue state
             teloxide::dispatching::dialogue::InMemStorage::<State>::new()
         ])
+        // Enable a control-C handler for graceful shutdown
         .enable_ctrlc_handler()
+        // Build the dispatcher
         .build()
+        // Start dispatching updates asynchronously
         .dispatch()
         .await;
 
