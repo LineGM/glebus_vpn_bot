@@ -2,7 +2,7 @@ use super::{handlers, types::State};
 use crate::error::MyError;
 use dptree::case;
 use teloxide::{
-    dispatching::{dialogue, dialogue::InMemStorage, UpdateHandler},
+    dispatching::{UpdateHandler, dialogue, dialogue::InMemStorage},
     prelude::*,
 };
 
@@ -73,16 +73,6 @@ pub fn schema() -> UpdateHandler<MyError> {
                     .unwrap_or(false)
             })
             .endpoint(handlers::show_connections),
-        )
-        // Добавляем обработку callback-запроса редактирования
-        .branch(
-            dptree::filter(|q: CallbackQuery| {
-                q.data
-                    .as_ref()
-                    .map(|data| data.starts_with("edit_"))
-                    .unwrap_or(false)
-            })
-            .endpoint(handlers::edit_connections),
         );
 
     // Create a dialogue that enters the specified states

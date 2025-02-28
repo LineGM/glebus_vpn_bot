@@ -4,7 +4,7 @@ use log4rs::config::runtime::{ConfigError, ConfigErrors};
 use reqwest::header::ToStrError;
 use std::fmt;
 use std::io;
-use teloxide::{dispatching::dialogue::InMemStorageError, RequestError};
+use teloxide::{RequestError, dispatching::dialogue::InMemStorageError};
 
 #[derive(Debug)]
 pub struct MyError(pub Box<dyn std::error::Error + Send + Sync + 'static>);

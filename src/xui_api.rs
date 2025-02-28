@@ -1,6 +1,6 @@
 use crate::error::MyError;
-use reqwest::header::{CONTENT_TYPE, COOKIE};
 use reqwest::Client;
+use reqwest::header::{CONTENT_TYPE, COOKIE};
 use serde_json::Value;
 
 pub struct ThreeXUiClient {
@@ -187,38 +187,6 @@ impl ThreeXUiClient {
                     .post(&url)
                     .header(CONTENT_TYPE, "application/json")
                     .json(&payload),
-            )
-            .send()
-            .await?;
-        let json: Value = response.json().await?;
-        Ok(json)
-    }
-
-    pub async fn update_client(&self, uuid: &str, client_config: &Value) -> Result<Value, MyError> {
-        let url = format!("{}/panel/api/inbounds/updateClient/{}", self.base_url, uuid);
-        let response = self
-            .with_cookie(
-                self.client
-                    .post(&url)
-                    .header(CONTENT_TYPE, "application/json")
-                    .json(client_config),
-            )
-            .send()
-            .await?;
-        let json: Value = response.json().await?;
-        Ok(json)
-    }
-
-    pub async fn delete_client(&self, inbound_id: u32, uuid: &str) -> Result<Value, MyError> {
-        let url = format!(
-            "{}/panel/api/inbounds/{}/delClient/{}",
-            self.base_url, inbound_id, uuid
-        );
-        let response = self
-            .with_cookie(
-                self.client
-                    .post(&url)
-                    .header(CONTENT_TYPE, "application/json"),
             )
             .send()
             .await?;
