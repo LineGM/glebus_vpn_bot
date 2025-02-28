@@ -73,6 +73,24 @@ pub fn schema() -> UpdateHandler<MyError> {
                     .unwrap_or(false)
             })
             .endpoint(handlers::show_connections),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "edit_connections")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::edit_connections),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "back_to_main_menu")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::start_callback),
         );
 
     // Create a dialogue that enters the specified states
