@@ -119,4 +119,24 @@ impl RussianMessages {
     pub fn select_device_to_edit(&self) -> String {
         "Выберите номер устройства:".to_string()
     }
+
+    pub fn select_new_platform(&self) -> String {
+        "Выберите новую платформу:".to_string()
+    }
+
+    pub fn connection_not_found(&self) -> String {
+        "Подключение не найдено.".to_string()
+    }
+
+    pub fn invalid_connection_index(&self) -> String {
+        "Неверный индекс подключения.".to_string()
+    }
+
+    pub fn invalid_platform(&self) -> String {
+        "Неверная платформа.".to_string()
+    }
+
+    pub fn platform_changed(&self, platform: &str) -> String {
+        format!("Платформа изменена на {}.", platform)
+    }
 }

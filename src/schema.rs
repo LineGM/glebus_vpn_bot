@@ -91,6 +91,18 @@ pub fn schema() -> UpdateHandler<MyError> {
                     .unwrap_or(false)
             })
             .endpoint(handlers::start_callback),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data.as_ref().map(|data| data.starts_with("edit_connection_")).unwrap_or(false)
+            })
+            .endpoint(handlers::edit_connection),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data.as_ref().map(|data| data.starts_with("change_platform_")).unwrap_or(false)
+            })
+            .endpoint(handlers::change_platform),
         );
 
     // Create a dialogue that enters the specified states
