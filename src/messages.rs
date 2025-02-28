@@ -86,7 +86,10 @@ impl RussianMessages {
     }
 
     pub fn connection_list_header(&self, available_slots: u8) -> String {
-        format!("📱 Ваши подключения (доступно устройств: {})", available_slots)
+        format!(
+            "📱 Ваши подключения (доступно устройств: {})",
+            available_slots
+        )
     }
 
     pub fn connection_item(&self, number: u8, platform: &str) -> String {
