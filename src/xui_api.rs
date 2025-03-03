@@ -194,7 +194,12 @@ impl ThreeXUiClient {
         Ok(json)
     }
 
-    pub async fn update_client(&self, inbound_id: u32, uuid: &str, client_config: &Value) -> Result<Value, MyError> {
+    pub async fn update_client(
+        &self,
+        inbound_id: u32,
+        uuid: &str,
+        client_config: &Value,
+    ) -> Result<Value, MyError> {
         let url = format!("{}/panel/api/inbounds/updateClient/{}", self.base_url, uuid);
         let payload = serde_json::json!({
             "id": inbound_id,

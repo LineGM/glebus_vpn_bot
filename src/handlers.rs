@@ -769,7 +769,7 @@ pub async fn show_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
                             ));
                         }
                     }
-                    
+
                     let keyboard = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
                         Messages::ru().back(),
                         "back_to_main_menu",
@@ -912,14 +912,16 @@ pub async fn start_callback(bot: Bot, q: CallbackQuery) -> HandlerResult {
                     .await?;
             }
             Ok(false) => {
-                bot.send_message(chat_id, Messages::ru().welcome())
-                    .await?;
+                bot.send_message(chat_id, Messages::ru().welcome()).await?;
                 // dialogue.update(State::ReceiveDeviceCount).await?; // Убрали обновление состояния, так как это новый запрос
             }
             Err(e) => {
                 log::error!("Failed to check existing client: {}", e);
-                bot.send_message(chat_id, Messages::ru().error("проверке наличия подключений"))
-                    .await?;
+                bot.send_message(
+                    chat_id,
+                    Messages::ru().error("проверке наличия подключений"),
+                )
+                .await?;
             }
         }
     }
@@ -963,7 +965,12 @@ pub async fn edit_connection(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                                 // Предлагаем пользователю выбрать новую платформу
                                 let keyboard = SUPPORTED_PLATFORMS
                                     .iter()
-                                    .map(|&p| InlineKeyboardButton::callback(p, format!("change_platform_{}_{}", index, p)))
+                                    .map(|&p| {
+                                        InlineKeyboardButton::callback(
+                                            p,
+                                            format!("change_platform_{}_{}", index, p),
+                                        )
+                                    })
                                     .collect::<Vec<_>>();
 
                                 let reply_markup = InlineKeyboardMarkup::new([keyboard]);
@@ -1045,50 +1052,90 @@ pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                                     let username = email.split('_').next().unwrap_or("unknown");
 
                                     // Формируем новые email и subId
-                                    let new_email = format!("{}_{}", username, platform.to_lowercase());
-                                    let new_sub_id = format!("{}_{}", username, platform.to_lowercase());
+                                    let new_email =
+                                        format!("{}_{}", username, platform.to_lowercase());
+                                    let new_sub_id =
+                                        format!("{}_{}", username, platform.to_lowercase());
 
                                     // Обновляем значения в connection
                                     if let Some(connection_map) = connection.as_object_mut() {
-                                        connection_map.insert("email".to_string(), new_email.clone().into());
-                                        connection_map.insert("subId".to_string(), new_sub_id.clone().into());
+                                        connection_map
+                                            .insert("email".to_string(), new_email.clone().into());
+                                        connection_map
+                                            .insert("subId".to_string(), new_sub_id.clone().into());
                                     }
 
                                     // Обновляем подключение в панели управления
-                                    let client_id = connection.get("id").and_then(|id| id.as_str()).unwrap_or_default();
+                                    let client_id = connection
+                                        .get("id")
+                                        .and_then(|id| id.as_str())
+                                        .unwrap_or_default();
 
                                     // Получаем inbound_id из connection
-                                    let inbound_id = connection.get("id").and_then(|id| id.as_i64()).unwrap_or(1) as u32;
+                                    let inbound_id = connection
+                                        .get("id")
+                                        .and_then(|id| id.as_i64())
+                                        .unwrap_or(1)
+                                        as u32;
 
                                     // Создаем новый JSON-объект с полями id и settings
                                     let mut client_map = serde_json::Map::new();
                                     client_map.insert("id".to_string(), inbound_id.into());
-                                    client_map.insert("email".to_string(), connection.get("email").unwrap().clone());
-                                    client_map.insert("enable".to_string(), connection.get("enable").unwrap().clone());
-                                    client_map.insert("flow".to_string(), connection.get("flow").unwrap().clone());
-                                    client_map.insert("subId".to_string(), connection.get("subId").unwrap().clone());
-                                    client_map.insert("tgId".to_string(), connection.get("tgId").unwrap().clone());
-                                    client_map.insert("comment".to_string(), connection.get("comment").unwrap().clone());
+                                    client_map.insert(
+                                        "email".to_string(),
+                                        connection.get("email").unwrap().clone(),
+                                    );
+                                    client_map.insert(
+                                        "enable".to_string(),
+                                        connection.get("enable").unwrap().clone(),
+                                    );
+                                    client_map.insert(
+                                        "flow".to_string(),
+                                        connection.get("flow").unwrap().clone(),
+                                    );
+                                    client_map.insert(
+                                        "subId".to_string(),
+                                        connection.get("subId").unwrap().clone(),
+                                    );
+                                    client_map.insert(
+                                        "tgId".to_string(),
+                                        connection.get("tgId").unwrap().clone(),
+                                    );
+                                    client_map.insert(
+                                        "comment".to_string(),
+                                        connection.get("comment").unwrap().clone(),
+                                    );
 
                                     let clients = vec![serde_json::Value::Object(client_map)];
 
                                     let mut payload = serde_json::Map::new();
                                     payload.insert("id".to_string(), inbound_id.into());
-                                    payload.insert("settings".to_string(), serde_json::Value::Array(clients).into());
+                                    payload.insert(
+                                        "settings".to_string(),
+                                        serde_json::Value::Array(clients).into(),
+                                    );
 
                                     let payload_json = serde_json::Value::Object(payload);
 
-                                    let update_result = api.update_client(inbound_id, client_id, &payload_json).await;
+                                    let update_result = api
+                                        .update_client(inbound_id, client_id, &payload_json)
+                                        .await;
 
                                     match update_result {
                                         Ok(_) => {
-                                            bot.send_message(chat_id, Messages::ru().platform_changed(&platform))
-                                                .await?;
+                                            bot.send_message(
+                                                chat_id,
+                                                Messages::ru().platform_changed(&platform),
+                                            )
+                                            .await?;
                                         }
                                         Err(e) => {
                                             log::error!("Failed to update client: {}", e);
-                                            bot.send_message(chat_id, Messages::ru().error("обновлении подключения"))
-                                                .await?;
+                                            bot.send_message(
+                                                chat_id,
+                                                Messages::ru().error("обновлении подключения"),
+                                            )
+                                            .await?;
                                         }
                                     }
                                 }

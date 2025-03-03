@@ -94,13 +94,19 @@ pub fn schema() -> UpdateHandler<MyError> {
         )
         .branch(
             dptree::filter(|q: CallbackQuery| {
-                q.data.as_ref().map(|data| data.starts_with("edit_connection_")).unwrap_or(false)
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("edit_connection_"))
+                    .unwrap_or(false)
             })
             .endpoint(handlers::edit_connection),
         )
         .branch(
             dptree::filter(|q: CallbackQuery| {
-                q.data.as_ref().map(|data| data.starts_with("change_platform_")).unwrap_or(false)
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("change_platform_"))
+                    .unwrap_or(false)
             })
             .endpoint(handlers::change_platform),
         );
