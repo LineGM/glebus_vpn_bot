@@ -63,9 +63,10 @@ impl ThreeXUiClient {
             Ok(())
         } else {
             // If the response is not successful, return an error with the status code.
-            Err(MyError::Custom(
-                format!("Login failed with status: {}", response.status())
-            ))
+            Err(MyError::Custom(format!(
+                "Login failed with status: {}",
+                response.status()
+            )))
         }
     }
 

@@ -15,6 +15,6 @@ async fn main() -> Result<(), MyError> {
     logger::logger::init_logger()?;
 
     run().await?;
-    
+
     Ok(())
 }
