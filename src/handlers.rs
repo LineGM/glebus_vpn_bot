@@ -636,7 +636,7 @@ async fn send_connection_info(
         .shape(Shape::RoundedSquare)
         .background_color([255, 255, 255, 0])
         .fit_width(600)
-        .to_file(&qrcode, image_name.to_str().ok_or("Invalid path encoding")?)?;
+        .to_file(&qrcode, image_name.to_str().ok_or(MyError::Str("Invalid path encoding".to_string()))?)?;
 
     // Send the QR code to the user as a photo
     bot.send_photo(
