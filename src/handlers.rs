@@ -429,7 +429,7 @@ pub async fn receive_platform_selection(
     if current_device < total_devices {
         handle_next_device(&bot, dialogue, total_devices, current_device, applications).await?;
     } else {
-        handle_completion(&bot, dialogue, username).await?;
+        handle_completion(&bot, dialogue).await?;
     }
 
     Ok(())
@@ -636,36 +636,14 @@ async fn send_connection_info(
     // Construct the URL of the client's configuration file
     let sub_url = format!("{}/{}", dotenv::var("SUB_BASE_URL")?, client_id);
 
-    // Create a temporary directory to store the QR code image
-    let temp_dir = std::env::temp_dir();
-
-    // Generate the name of the temporary file
-    let image_name = temp_dir.join(format!("{}.png", client_id));
-
-    // Generate the QR code and save it to the temporary file
-    let qrcode = QRBuilder::new(sub_url.clone()).build()?;
-    ImageBuilder::default()
-        .shape(Shape::RoundedSquare)
-        .background_color([255, 255, 255, 0])
-        .fit_width(600)
-        .to_file(
-            &qrcode,
-            image_name
-                .to_str()
-                .ok_or(MyError::Str("Invalid path encoding".to_string()))?,
-        )?;
-
+    // Generate the QR code
+    let qr_code = generate_qr_code(&sub_url)?;
     // Send the QR code to the user as a photo
     bot.send_photo(
         dialogue.chat_id(),
-        teloxide::types::InputFile::file(&image_name),
+        teloxide::types::InputFile::memory(qr_code),
     )
     .await?;
-
-    // Remove the temporary QR code file
-    if let Err(e) = std::fs::remove_file(&image_name) {
-        log::warn!("Failed to remove temporary QR code file: {}", e);
-    }
 
     // Send the connection information string to the user
     bot.send_message(dialogue.chat_id(), Messages::ru().connection_info(&sub_url))
@@ -721,28 +699,47 @@ async fn handle_next_device(
 ///
 /// * `bot` - The bot handle used to send messages to the user.
 /// * `dialogue` - The dialogue handle used to manage the user's dialogue state.
-/// * `username` - The username of the user who completed the VPN setup.
-/// * `q` - The callback query associated with the completion.
 ///
 /// # Returns
 ///
 /// A `HandlerResult` indicating the success or failure of the message sending operation.
-async fn handle_completion(bot: &Bot, dialogue: MyDialogue, username: &str) -> HandlerResult {
-    // Log the successful completion of the VPN setup for the user
-    log::info!(
-        "User {} (chat_id={}) successfully completed the request",
-        username,
-        dialogue.chat_id()
-    );
+async fn handle_completion(bot: &Bot, dialogue: MyDialogue) -> HandlerResult {
+    let chat_id = dialogue.chat_id();
 
-    // Send a completion message to the user
-    bot.send_message(dialogue.chat_id(), Messages::ru().completion())
+    // Изменяем состояние диалога на EditConnection
+    dialogue.update(State::EditConnection { connection_index: 0 }).await?;
+
+    // Вызываем функцию отображения меню редактирования подключений
+    show_edit_connections_menu(bot, chat_id).await?;
+
+    Ok(())
+}
+
+// Добавляем новую функцию для отображения меню редактирования подключений
+async fn show_edit_connections_menu(bot: &Bot, chat_id: ChatId) -> HandlerResult {
+    let keyboard = InlineKeyboardMarkup::new([
+        [InlineKeyboardButton::callback(
+            Messages::ru().change_platform(),
+            "change_current_connections",
+        )],
+        [InlineKeyboardButton::callback(
+            Messages::ru().add_device(),
+            "add_connection",
+        )],
+        [InlineKeyboardButton::callback(
+            Messages::ru().delete_device(),
+            "delete_connections",
+        )],
+        [InlineKeyboardButton::callback(
+            Messages::ru().back(),
+            "back_to_main_menu",
+        )],
+    ]);
+
+    bot.send_message(chat_id, Messages::ru().edit_actions())
+        .reply_markup(keyboard)
         .await?;
 
-    // Exit the dialogue as the process is complete
-    dialogue.exit().await?;
-
-    // Return a successful HandlerResult
     Ok(())
 }
 
@@ -1451,4 +1448,28 @@ pub async fn delete_connection(bot: Bot, q: CallbackQuery) -> HandlerResult {
     }
 
     Ok(())
+}
+
+/// Generates a QR code from the given data.
+///
+/// # Arguments
+///
+/// * `data` - The data to encode in the QR code.
+///
+/// # Returns
+///
+/// A `Result` containing the QR code as a vector of bytes, or an error if the
+/// QR code could not be generated.
+fn generate_qr_code(data: &str) -> Result<Vec<u8>, MyError> {
+    // Generate the QR code
+    let qrcode = QRBuilder::new(data).build()?;
+
+    // Create an image from the QR code and convert it to bytes
+    let image_bytes = ImageBuilder::default()
+        .shape(Shape::RoundedSquare)
+        .background_color([255, 255, 255, 0])
+        .fit_width(600)
+        .to_bytes(&qrcode)?;
+
+    Ok(image_bytes)
 }
