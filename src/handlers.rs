@@ -1042,23 +1042,22 @@ pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                             serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
                         {
                             if let Some(connection) = connections.get_mut(index) {
-                                log::info!("Connection: {:?}", connection);
                                 // Обновляем email и subId
                                 if let (Some(email), Some(sub_id)) = (
                                     connection.get("email").and_then(|e| e.as_str()),
                                     connection.get("subId").and_then(|s| s.as_str()),
                                 ) {
                                     // Извлекаем имя пользователя из email
-                                    let username = email.split('_').next().unwrap_or("unknown");
+                                    let new_username = email.split('_').next().unwrap_or("unknown");
+                                    let new_platform = platform.to_lowercase();
 
                                     // Формируем новые email и subId
-                                    let new_email =
-                                        format!("{}_{}", username, platform.to_lowercase());
-                                    let new_sub_id =
-                                        format!("{}_{}", username, platform.to_lowercase());
+                                    let new_email = format!("{}_{}", new_username, new_platform);
+                                    let new_sub_id = format!("{}_{}", new_username, new_platform);
 
                                     // Обновляем значения в connection
-                                    if let Some(connection_map) = connection.as_object_mut() {
+                                    let mut connection_clone = connection.clone();
+                                    if let Some(connection_map) = connection_clone.as_object_mut() {
                                         connection_map
                                             .insert("email".to_string(), new_email.clone().into());
                                         connection_map
@@ -1069,7 +1068,8 @@ pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                                     let client_id = connection
                                         .get("id")
                                         .and_then(|id| id.as_str())
-                                        .unwrap_or_default();
+                                        .unwrap_or_default()
+                                        .to_string();
 
                                     // Получаем inbound_id из connection
                                     let inbound_id = connection
@@ -1078,62 +1078,52 @@ pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                                         .unwrap_or(1)
                                         as u32;
 
-                                    // Создаем новый JSON-объект с полями id и settings
-                                    let mut client_map = serde_json::Map::new();
-                                    client_map.insert("id".to_string(), inbound_id.into());
-                                    client_map.insert(
-                                        "email".to_string(),
-                                        connection.get("email").unwrap().clone(),
-                                    );
-                                    client_map.insert(
-                                        "enable".to_string(),
-                                        connection.get("enable").unwrap().clone(),
-                                    );
-                                    client_map.insert(
-                                        "flow".to_string(),
-                                        connection.get("flow").unwrap().clone(),
-                                    );
-                                    client_map.insert(
-                                        "subId".to_string(),
-                                        connection.get("subId").unwrap().clone(),
-                                    );
-                                    client_map.insert(
-                                        "tgId".to_string(),
-                                        connection.get("tgId").unwrap().clone(),
-                                    );
-                                    client_map.insert(
-                                        "comment".to_string(),
-                                        connection.get("comment").unwrap().clone(),
-                                    );
+                                    // Удаляем существующего клиента
+                                    let delete_result =
+                                        api.delete_client(inbound_id, &client_id).await;
 
-                                    let clients = vec![serde_json::Value::Object(client_map)];
-
-                                    let mut payload = serde_json::Map::new();
-                                    payload.insert("id".to_string(), inbound_id.into());
-                                    payload.insert(
-                                        "settings".to_string(),
-                                        serde_json::Value::Array(clients).into(),
-                                    );
-
-                                    let payload_json = serde_json::Value::Object(payload);
-
-                                    let update_result = api
-                                        .update_client(inbound_id, client_id, &payload_json)
-                                        .await;
-
-                                    match update_result {
+                                    match delete_result {
                                         Ok(_) => {
-                                            bot.send_message(
-                                                chat_id,
-                                                Messages::ru().platform_changed(&platform),
+                                            log::info!(
+                                                "Update client: Old client deleted successfully"
+                                            );
+
+                                            // Добавляем нового клиента с помощью try_add_client
+                                            if !try_add_client(
+                                                &mut api,
+                                                &dialogue,
+                                                &new_username,
+                                                &new_platform,
                                             )
-                                            .await?;
+                                            .await
+                                            {
+                                                log::error!(
+                                                    "Update client: Failed to add new client"
+                                                );
+                                                bot.send_message(
+                                                    chat_id,
+                                                    Messages::ru().error("добавлении подключения"),
+                                                )
+                                                .await?;
+                                            } else {
+                                                log::info!(
+                                                    "Update client: New client added successfully"
+                                                );
+                                                bot.send_message(
+                                                    chat_id,
+                                                    Messages::ru().platform_changed(&platform),
+                                                )
+                                                .await?;
+                                            }
                                         }
                                         Err(e) => {
-                                            log::error!("Failed to update client: {}", e);
+                                            log::error!(
+                                                "Update client: Failed to delete old client: {}",
+                                                e
+                                            );
                                             bot.send_message(
                                                 chat_id,
-                                                Messages::ru().error("обновлении подключения"),
+                                                Messages::ru().error("удалении подключения"),
                                             )
                                             .await?;
                                         }
@@ -1144,7 +1134,7 @@ pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                                     .await?;
                             }
                         } else {
-                            log::error!("Failed to parse client connections");
+                            log::error!("Update client: Failed to parse client connections");
                             bot.send_message(
                                 chat_id,
                                 Messages::ru().error("получении информации о подключениях"),
@@ -1153,7 +1143,7 @@ pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to get client connections: {}", e);
+                        log::error!("Update client: Failed to get client connections: {}", e);
                         bot.send_message(
                             chat_id,
                             Messages::ru().error("получении информации о подключениях"),

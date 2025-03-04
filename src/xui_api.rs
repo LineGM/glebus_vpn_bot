@@ -214,8 +214,12 @@ impl ThreeXUiClient {
             )
             .send()
             .await?;
-        log::info!("settings: {}", serde_json::to_string_pretty(&payload)?);
-        let json: Value = response.json().await?;
+
+        log::info!("Update client response status: {}", response.status());
+        let body = response.text().await?;
+        log::info!("Update client response body: {}", body);
+
+        let json: Value = serde_json::from_str(&body)?;
         Ok(json)
     }
 
