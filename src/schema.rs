@@ -154,6 +154,15 @@ pub fn schema() -> UpdateHandler<MyError> {
                     .unwrap_or(false)
             })
             .endpoint(handlers::delete_connection),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("device_count_"))
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::receive_device_count_callback),
         );
 
     // Create a dialogue that enters the specified states

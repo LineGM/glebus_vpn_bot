@@ -81,9 +81,23 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
                 .await?;
         }
         Ok(false) => {
-            bot.send_message(dialogue.chat_id(), Messages::ru().welcome())
+            // Создаем клавиатуру с кнопками от 1 до MAX_DEVICES
+            let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+            let mut row: Vec<InlineKeyboardButton> = Vec::new();
+            for i in 1..=MAX_DEVICES {
+                row.push(InlineKeyboardButton::callback(
+                    i.to_string(),
+                    format!("device_count_{}", i),
+                ));
+                if i % 3 == 0 || i == MAX_DEVICES {
+                    keyboard.push(row);
+                    row = Vec::new();
+                }
+            }
+
+            bot.send_message(chat_id, Messages::ru().welcome())
+                .reply_markup(InlineKeyboardMarkup::new(keyboard))
                 .await?;
-            dialogue.update(State::ReceiveDeviceCount).await?;
         }
         Err(e) => {
             log::error!("Failed to check existing client: {}", e);
@@ -1483,4 +1497,39 @@ fn generate_qr_code(data: &str) -> Result<Vec<u8>, MyError> {
         .to_bytes(&qrcode)?;
 
     Ok(image_bytes)
+}
+
+/// # Returns
+///
+/// A `HandlerResult`.
+pub async fn receive_device_count_callback(
+    bot: Bot,
+    dialogue: MyDialogue,
+    q: CallbackQuery,
+) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+
+        // Извлекаем количество устройств из callback_data
+        let device_count = q
+            .data
+            .as_ref()
+            .and_then(|data| data.split('_').last())
+            .and_then(|count| count.parse::<u8>().ok());
+
+        match device_count {
+            Some(count) if (1..=MAX_DEVICES).contains(&count) => {
+                // Если количество устройств валидно, вызываем handle_valid_device_count
+                let username = q.from.username.as_deref().unwrap_or("unknown");
+                handle_valid_device_count(bot, dialogue, username, chat_id, count).await?;
+            }
+            _ => {
+                // Если количество устройств невалидно, отправляем сообщение об ошибке
+                bot.send_message(chat_id, Messages::ru().invalid_device_count())
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
 }
