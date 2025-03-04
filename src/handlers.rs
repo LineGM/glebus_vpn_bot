@@ -1352,7 +1352,7 @@ pub async fn delete_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
     Ok(())
 }
 
-pub async fn delete_connection(bot: Bot, q: CallbackQuery) -> HandlerResult {
+pub async fn delete_connection(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
     if let Some(msg) = q.clone().message {
         let chat_id = msg.chat().id;
 
@@ -1404,6 +1404,17 @@ pub async fn delete_connection(bot: Bot, q: CallbackQuery) -> HandlerResult {
                                         log::info!("Client deleted successfully");
                                         bot.send_message(chat_id, "Подключение успешно удалено.")
                                             .await?;
+
+                                        // Проверяем количество оставшихся подключений
+                                        let connections_str = api.get_client_connections(chat_id.0).await?;
+                                        if connections_str == "{}" {
+                                            // Уведомляем пользователя о завершении диалога
+                                            bot.send_message(chat_id, "Вы удалили последнего пользователя. Для дальнейшего использования бота введите команду /start.")
+                                                .await?;
+                                            // Завершаем диалог, если это было последнее подключение
+                                            dialogue.exit().await?;
+                                            return Ok(());
+                                        }
 
                                         // Возвращаемся в меню редактирования подключений
                                         edit_connections(bot, q).await?;
