@@ -81,9 +81,23 @@ pub async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResul
                 .await?;
         }
         Ok(false) => {
-            bot.send_message(dialogue.chat_id(), Messages::ru().welcome())
+            // Создаем клавиатуру с кнопками от 1 до MAX_DEVICES
+            let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+            let mut row: Vec<InlineKeyboardButton> = Vec::new();
+            for i in 1..=MAX_DEVICES {
+                row.push(InlineKeyboardButton::callback(
+                    i.to_string(),
+                    format!("device_count_{}", i),
+                ));
+                if i % 3 == 0 || i == MAX_DEVICES {
+                    keyboard.push(row);
+                    row = Vec::new();
+                }
+            }
+
+            bot.send_message(chat_id, Messages::ru().welcome())
+                .reply_markup(InlineKeyboardMarkup::new(keyboard))
                 .await?;
-            dialogue.update(State::ReceiveDeviceCount).await?;
         }
         Err(e) => {
             log::error!("Failed to check existing client: {}", e);
@@ -429,7 +443,7 @@ pub async fn receive_platform_selection(
     if current_device < total_devices {
         handle_next_device(&bot, dialogue, total_devices, current_device, applications).await?;
     } else {
-        handle_completion(&bot, dialogue, username).await?;
+        handle_completion(&bot, dialogue).await?;
     }
 
     Ok(())
@@ -455,7 +469,7 @@ pub async fn receive_platform_selection(
 /// # Returns
 ///
 /// A `Result` containing `true` if all operations are successful, or `false` if any operation fails.
-async fn handle_api_operations(
+pub async fn handle_api_operations(
     bot: &Bot,
     dialogue: &MyDialogue,
     username: &str,
@@ -536,7 +550,13 @@ async fn try_add_client(
     platform: &str,
 ) -> bool {
     // Construct the client ID by combining the username and platform
-    let client_id = format!("{}_{}", username, platform.to_lowercase());
+    // Generate a unique client ID using UUID
+    let client_id = format!(
+        "{}_{}_{}",
+        username,
+        platform.to_lowercase(),
+        Uuid::new_v4().simple()
+    );
 
     // Create a new client JSON object with the necessary details
     let new_client = serde_json::json!({
@@ -619,36 +639,25 @@ async fn send_connection_info(
     platform: &str,
 ) -> HandlerResult {
     // Generate a client ID from the username and platform
-    let client_id = format!("{}_{}", username, platform.to_lowercase());
+    // Generate a unique client ID using UUID
+    let client_id = format!(
+        "{}_{}_{}",
+        username,
+        platform.to_lowercase(),
+        Uuid::new_v4().simple()
+    );
 
     // Construct the URL of the client's configuration file
     let sub_url = format!("{}/{}", dotenv::var("SUB_BASE_URL")?, client_id);
 
-    // Create a temporary directory to store the QR code image
-    let temp_dir = std::env::temp_dir();
-
-    // Generate the name of the temporary file
-    let image_name = temp_dir.join(format!("{}.png", client_id));
-
-    // Generate the QR code and save it to the temporary file
-    let qrcode = QRBuilder::new(sub_url.clone()).build()?;
-    ImageBuilder::default()
-        .shape(Shape::RoundedSquare)
-        .background_color([255, 255, 255, 0])
-        .fit_width(600)
-        .to_file(&qrcode, image_name.to_str().ok_or("Invalid path encoding")?)?;
-
+    // Generate the QR code
+    let qr_code = generate_qr_code(&sub_url)?;
     // Send the QR code to the user as a photo
     bot.send_photo(
         dialogue.chat_id(),
-        teloxide::types::InputFile::file(&image_name),
+        teloxide::types::InputFile::memory(qr_code),
     )
     .await?;
-
-    // Remove the temporary QR code file
-    if let Err(e) = std::fs::remove_file(&image_name) {
-        log::warn!("Failed to remove temporary QR code file: {}", e);
-    }
 
     // Send the connection information string to the user
     bot.send_message(dialogue.chat_id(), Messages::ru().connection_info(&sub_url))
@@ -704,27 +713,47 @@ async fn handle_next_device(
 ///
 /// * `bot` - The bot handle used to send messages to the user.
 /// * `dialogue` - The dialogue handle used to manage the user's dialogue state.
-/// * `username` - The username of the user who completed the VPN setup.
 ///
 /// # Returns
 ///
 /// A `HandlerResult` indicating the success or failure of the message sending operation.
-async fn handle_completion(bot: &Bot, dialogue: MyDialogue, username: &str) -> HandlerResult {
-    // Log the successful completion of the VPN setup for the user
-    log::info!(
-        "User {} (chat_id={}) successfully completed the request",
-        username,
-        dialogue.chat_id()
-    );
+async fn handle_completion(bot: &Bot, dialogue: MyDialogue) -> HandlerResult {
+    let chat_id = dialogue.chat_id();
 
-    // Send a completion message to the user
-    bot.send_message(dialogue.chat_id(), Messages::ru().completion())
+    // Изменяем состояние диалога на EditConnection
+    dialogue.update(State::EditConnection { connection_index: 0 }).await?;
+
+    // Вызываем функцию отображения меню редактирования подключений
+    show_edit_connections_menu(bot, chat_id).await?;
+
+    Ok(())
+}
+
+// Добавляем новую функцию для отображения меню редактирования подключений
+async fn show_edit_connections_menu(bot: &Bot, chat_id: ChatId) -> HandlerResult {
+    let keyboard = InlineKeyboardMarkup::new([
+        [InlineKeyboardButton::callback(
+            Messages::ru().change_platform(),
+            "change_current_connections",
+        )],
+        [InlineKeyboardButton::callback(
+            Messages::ru().add_device(),
+            "add_connection",
+        )],
+        [InlineKeyboardButton::callback(
+            Messages::ru().delete_device(),
+            "delete_connections",
+        )],
+        [InlineKeyboardButton::callback(
+            Messages::ru().back(),
+            "back_to_main_menu",
+        )],
+    ]);
+
+    bot.send_message(chat_id, Messages::ru().edit_actions())
+        .reply_markup(keyboard)
         .await?;
 
-    // Exit the dialogue as the process is complete
-    dialogue.exit().await?;
-
-    // Return a successful HandlerResult
     Ok(())
 }
 
@@ -769,7 +798,7 @@ pub async fn show_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
                             ));
                         }
                     }
-                    
+
                     let keyboard = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
                         Messages::ru().back(),
                         "back_to_main_menu",
@@ -802,6 +831,322 @@ pub async fn show_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
 }
 
 pub async fn edit_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+
+        let keyboard = InlineKeyboardMarkup::new([
+            [InlineKeyboardButton::callback(
+                Messages::ru().change_platform(),
+                "change_current_connections",
+            )],
+            [InlineKeyboardButton::callback(
+                Messages::ru().add_device(),
+                "add_connection",
+            )],
+            [InlineKeyboardButton::callback(
+                Messages::ru().delete_device(),
+                "delete_connections",
+            )],
+            [InlineKeyboardButton::callback(
+                Messages::ru().back(),
+                "back_to_main_menu",
+            )],
+        ]);
+
+        bot.send_message(chat_id, Messages::ru().edit_actions())
+            .reply_markup(keyboard)
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn start_callback(bot: Bot, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+        let base_url = dotenv::var("PANEL_BASE_URL")?;
+        let mut api = ThreeXUiClient::new(&base_url);
+
+        let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+        let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+        if let Err(e) = api.login(&admin_login, &admin_password).await {
+            log::error!("Failed to login to panel: {}", e);
+            bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+                .await?;
+            return Ok(());
+        }
+
+        match api.has_existing_client(chat_id.0).await {
+            Ok(true) => {
+                let keyboard = InlineKeyboardMarkup::new([[
+                    InlineKeyboardButton::callback(
+                        Messages::ru().show_connections(),
+                        "show_connections",
+                    ),
+                    InlineKeyboardButton::callback(
+                        Messages::ru().edit_connections(),
+                        "edit_connections",
+                    ),
+                ]]);
+
+                bot.send_message(chat_id, Messages::ru().already_connected())
+                    .reply_markup(keyboard)
+                    .await?;
+            }
+            Ok(false) => {
+                bot.send_message(chat_id, Messages::ru().welcome()).await?;
+                // dialogue.update(State::ReceiveDeviceCount).await?; // Убрали обновление состояния, так как это новый запрос
+            }
+            Err(e) => {
+                log::error!("Failed to check existing client: {}", e);
+                bot.send_message(
+                    chat_id,
+                    Messages::ru().error("проверке наличия подключений"),
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn edit_connection(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+
+        // Извлекаем индекс подключения из callback_data
+        let connection_index = q
+            .data
+            .as_ref()
+            .and_then(|data| data.split('_').last())
+            .and_then(|index| index.parse::<usize>().ok());
+
+        match connection_index {
+            Some(index) => {
+                // Получаем информацию о подключениях пользователя из панели управления
+                let base_url = dotenv::var("PANEL_BASE_URL")?;
+                let mut api = ThreeXUiClient::new(&base_url);
+
+                let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+                let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+                if let Err(e) = api.login(&admin_login, &admin_password).await {
+                    log::error!("Failed to login to panel: {}", e);
+                    bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+                        .await?;
+                    return Ok(());
+                }
+
+                match api.get_client_connections(chat_id.0).await {
+                    Ok(connections_str) => {
+                        if let Ok(connections) =
+                            serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
+                        {
+                            if let Some(connection) = connections.get(index) {
+                                // Предлагаем пользователю выбрать новую платформу
+                                let keyboard = SUPPORTED_PLATFORMS
+                                    .iter()
+                                    .map(|&p| {
+                                        InlineKeyboardButton::callback(
+                                            p,
+                                            format!("change_platform_{}_{}", index, p),
+                                        )
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                let reply_markup = InlineKeyboardMarkup::new([keyboard]);
+
+                                bot.send_message(chat_id, Messages::ru().select_new_platform())
+                                    .reply_markup(reply_markup)
+                                    .await?;
+                            } else {
+                                bot.send_message(chat_id, Messages::ru().connection_not_found())
+                                    .await?;
+                            }
+                        } else {
+                            log::error!("Failed to parse client connections");
+                            bot.send_message(
+                                chat_id,
+                                Messages::ru().error("получении информации о подключениях"),
+                            )
+                            .await?;
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to get client connections: {}", e);
+                        bot.send_message(
+                            chat_id,
+                            Messages::ru().error("получении информации о подключениях"),
+                        )
+                        .await?;
+                    }
+                }
+            }
+            None => {
+                bot.send_message(chat_id, Messages::ru().invalid_connection_index())
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn change_platform(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.clone().message {
+        let chat_id = msg.chat().id;
+
+        // Извлекаем индекс подключения и новую платформу из callback_data
+        let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
+        let connection_index = parts.get(2).and_then(|index| index.parse::<usize>().ok());
+        let new_platform = parts.get(3).map(|&platform| platform.to_string());
+
+        match (connection_index, new_platform) {
+            (Some(index), Some(platform)) => {
+                // Получаем информацию о подключениях пользователя из панели управления
+                let base_url = dotenv::var("PANEL_BASE_URL")?;
+                let mut api = ThreeXUiClient::new(&base_url);
+
+                let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+                let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+                if let Err(e) = api.login(&admin_login, &admin_password).await {
+                    log::error!("Failed to login to panel: {}", e);
+                    bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+                        .await?;
+                    return Ok(());
+                }
+
+                match api.get_client_connections(chat_id.0).await {
+                    Ok(connections_str) => {
+                        if let Ok(mut connections) =
+                            serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
+                        {
+                            if let Some(connection) = connections.get_mut(index) {
+                                // Обновляем email и subId
+                                if let (Some(email), Some(sub_id)) = (
+                                    connection.get("email").and_then(|e| e.as_str()),
+                                    connection.get("subId").and_then(|s| s.as_str()),
+                                ) {
+                                    // Извлекаем имя пользователя из email
+                                    let new_username = email.split('_').next().unwrap_or("unknown");
+                                    let new_platform = platform.to_lowercase();
+
+                                    // Формируем новые email и subId
+                                    let new_email = format!("{}_{}", new_username, new_platform);
+                                    let new_sub_id = format!("{}_{}", new_username, new_platform);
+
+                                    // Обновляем значения в connection
+                                    let mut connection_clone = connection.clone();
+                                    if let Some(connection_map) = connection_clone.as_object_mut() {
+                                        connection_map
+                                            .insert("email".to_string(), new_email.clone().into());
+                                        connection_map
+                                            .insert("subId".to_string(), new_sub_id.clone().into());
+                                    }
+
+                                    // Обновляем подключение в панели управления
+                                    let client_id = connection
+                                        .get("id")
+                                        .and_then(|id| id.as_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+
+                                    // Получаем inbound_id из connection
+                                    let inbound_id = connection
+                                        .get("id")
+                                        .and_then(|id| id.as_i64())
+                                        .unwrap_or(1)
+                                        as u32;
+
+                                    // Удаляем существующего клиента
+                                    let delete_result =
+                                        api.delete_client(inbound_id, &client_id).await;
+
+                                    match delete_result {
+                                        Ok(_) => {
+                                            log::info!(
+                                                "Update client: Old client deleted successfully"
+                                            );
+
+                                            // Добавляем нового клиента с помощью try_add_client
+                                            if !try_add_client(
+                                                &mut api,
+                                                &dialogue,
+                                                &new_username,
+                                                &new_platform,
+                                            )
+                                            .await
+                                            {
+                                                log::error!(
+                                                    "Update client: Failed to add new client"
+                                                );
+                                                bot.send_message(
+                                                    chat_id,
+                                                    Messages::ru().error("добавлении подключения"),
+                                                )
+                                                .await?;
+                                            } else {
+                                                log::info!(
+                                                    "Update client: New client added successfully"
+                                                );
+                                                bot.send_message(
+                                                    chat_id,
+                                                    Messages::ru().platform_changed(&platform),
+                                                )
+                                                .await?;
+                                                edit_connections(bot, q).await?;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::error!(
+                                                "Update client: Failed to delete old client: {}",
+                                                e
+                                            );
+                                            bot.send_message(
+                                                chat_id,
+                                                Messages::ru().error("удалении подключения"),
+                                            )
+                                            .await?;
+                                        }
+                                    }
+                                }
+                            } else {
+                                bot.send_message(chat_id, Messages::ru().connection_not_found())
+                                    .await?;
+                            }
+                        } else {
+                            log::error!("Update client: Failed to parse client connections");
+                            bot.send_message(
+                                chat_id,
+                                Messages::ru().error("получении информации о подключениях"),
+                            )
+                            .await?;
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Update client: Failed to get client connections: {}", e);
+                        bot.send_message(
+                            chat_id,
+                            Messages::ru().error("получении информации о подключениях"),
+                        )
+                        .await?;
+                    }
+                }
+            }
+            _ => {
+                bot.send_message(chat_id, Messages::ru().invalid_platform())
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn change_current_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
     if let Some(msg) = q.message {
         let chat_id = msg.chat().id;
 
@@ -847,7 +1192,7 @@ pub async fn edit_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
                     // Добавляем кнопку "Назад"
                     keyboard.push(vec![InlineKeyboardButton::callback(
                         Messages::ru().back(),
-                        "back_to_main_menu",
+                        "back_to_edit_menu",
                     )]);
 
                     let reply_markup = InlineKeyboardMarkup::new(keyboard);
@@ -878,9 +1223,11 @@ pub async fn edit_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
     Ok(())
 }
 
-pub async fn start_callback(bot: Bot, q: CallbackQuery) -> HandlerResult {
-    if let Some(msg) = q.message {
+pub async fn add_connection(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.clone().message {
         let chat_id = msg.chat().id;
+
+        // Получаем информацию о подключениях пользователя из панели управления
         let base_url = dotenv::var("PANEL_BASE_URL")?;
         let mut api = ThreeXUiClient::new(&base_url);
 
@@ -894,31 +1241,291 @@ pub async fn start_callback(bot: Bot, q: CallbackQuery) -> HandlerResult {
             return Ok(());
         }
 
-        match api.has_existing_client(chat_id.0).await {
-            Ok(true) => {
-                let keyboard = InlineKeyboardMarkup::new([[
-                    InlineKeyboardButton::callback(
-                        Messages::ru().show_connections(),
-                        "show_connections",
-                    ),
-                    InlineKeyboardButton::callback(
-                        Messages::ru().edit_connections(),
-                        "edit_connections",
-                    ),
-                ]]);
+        match api.get_client_connections(chat_id.0).await {
+            Ok(connections_str) => {
+                if let Ok(connections) =
+                    serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
+                {
+                    // Проверяем, не превышен ли лимит устройств
+                    if connections.len() >= MAX_DEVICES.into() {
+                        bot.send_message(chat_id, Messages::ru().excessive_devices())
+                            .await?;
+                        edit_connections(bot, q).await?;
+                        return Ok(());
+                    }
 
-                bot.send_message(chat_id, Messages::ru().already_connected())
-                    .reply_markup(keyboard)
+                    // Запрашиваем у пользователя платформу для нового устройства
+                    dialogue
+                        .update(State::ReceiveDeviceInfo {
+                            total_devices: 1,
+                            current_device: 1,
+                            applications: Vec::new(),
+                        })
+                        .await?;
+
+                    bot.send_message(chat_id, Messages::ru().select_platform_for_new_device())
+                        .await?;
+                    ask_device_platform(&bot, chat_id, 1).await?;
+                } else {
+                    log::error!("Failed to parse client connections");
+                    bot.send_message(
+                        chat_id,
+                        Messages::ru().error("получении информации о подключениях"),
+                    )
                     .await?;
-            }
-            Ok(false) => {
-                bot.send_message(chat_id, Messages::ru().welcome())
-                    .await?;
-                // dialogue.update(State::ReceiveDeviceCount).await?; // Убрали обновление состояния, так как это новый запрос
+                }
             }
             Err(e) => {
-                log::error!("Failed to check existing client: {}", e);
-                bot.send_message(chat_id, Messages::ru().error("проверке наличия подключений"))
+                log::error!("Failed to get client connections: {}", e);
+                bot.send_message(
+                    chat_id,
+                    Messages::ru().error("получении информации о подключениях"),
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn delete_connections(bot: Bot, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+
+        // Получаем информацию о подключениях пользователя из панели управления
+        let base_url = dotenv::var("PANEL_BASE_URL")?;
+        let mut api = ThreeXUiClient::new(&base_url);
+
+        let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+        let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+        if let Err(e) = api.login(&admin_login, &admin_password).await {
+            log::error!("Failed to login to panel: {}", e);
+            bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+                .await?;
+            return Ok(());
+        }
+
+        match api.get_client_connections(chat_id.0).await {
+            Ok(connections_str) => {
+                if let Ok(connections) =
+                    serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
+                {
+                    // Проверяем, есть ли подключения
+                    if connections.is_empty() {
+                        bot.send_message(chat_id, Messages::ru().no_active_connections())
+                            .await?;
+                        return Ok(());
+                    }
+
+                    // Отправляем пользователю список подключений с кнопками для удаления
+                    let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+                    for (i, connection) in connections.iter().enumerate() {
+                        if let Some(email) = connection.get("email").and_then(|e| e.as_str()) {
+                            let button_text = Messages::ru().connection_item((i + 1) as u8, email);
+                            let callback_data = format!("delete_connection_{}", i);
+                            keyboard.push(vec![InlineKeyboardButton::callback(
+                                button_text,
+                                callback_data,
+                            )]);
+                        }
+                    }
+
+                    // Добавляем кнопку "Назад"
+                    keyboard.push(vec![InlineKeyboardButton::callback(
+                        Messages::ru().back(),
+                        "back_to_edit_menu",
+                    )]);
+
+                    let reply_markup = InlineKeyboardMarkup::new(keyboard);
+
+                    bot.send_message(chat_id, "Выберите подключение для удаления:")
+                        .reply_markup(reply_markup)
+                        .await?;
+                } else {
+                    log::error!("Failed to parse client connections");
+                    bot.send_message(
+                        chat_id,
+                        Messages::ru().error("получении информации о подключениях"),
+                    )
+                    .await?;
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to get client connections: {}", e);
+                bot.send_message(
+                    chat_id,
+                    Messages::ru().error("получении информации о подключениях"),
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn delete_connection(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.clone().message {
+        let chat_id = msg.chat().id;
+
+        // Извлекаем индекс подключения из callback_data
+        let connection_index = q
+            .data
+            .as_ref()
+            .and_then(|data| data.split('_').last())
+            .and_then(|index| index.parse::<usize>().ok());
+
+        match connection_index {
+            Some(index) => {
+                // Получаем информацию о подключениях пользователя из панели управления
+                let base_url = dotenv::var("PANEL_BASE_URL")?;
+                let mut api = ThreeXUiClient::new(&base_url);
+
+                let admin_login = dotenv::var("PANEL_ADMIN_LOGIN")?;
+                let admin_password = dotenv::var("PANEL_ADMIN_PASSWORD")?;
+
+                if let Err(e) = api.login(&admin_login, &admin_password).await {
+                    log::error!("Failed to login to panel: {}", e);
+                    bot.send_message(chat_id, Messages::ru().error("панели сервера"))
+                        .await?;
+                    return Ok(());
+                }
+
+                match api.get_client_connections(chat_id.0).await {
+                    Ok(connections_str) => {
+                        if let Ok(connections) =
+                            serde_json::from_str::<Vec<serde_json::Value>>(&connections_str)
+                        {
+                            if let Some(connection) = connections.get(index) {
+                                // Получаем client_id и inbound_id из connection
+                                let client_id = connection
+                                    .get("id")
+                                    .and_then(|id| id.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+
+                                let inbound_id =
+                                    connection.get("id").and_then(|id| id.as_i64()).unwrap_or(1)
+                                        as u32;
+
+                                // Удаляем подключение из панели управления
+                                let delete_result = api.delete_client(inbound_id, &client_id).await;
+
+                                match delete_result {
+                                    Ok(_) => {
+                                        log::info!("Client deleted successfully");
+                                        bot.send_message(chat_id, "Подключение успешно удалено.")
+                                            .await?;
+
+                                        // Проверяем количество оставшихся подключений
+                                        let connections_str = api.get_client_connections(chat_id.0).await?;
+                                        if connections_str == "{}" {
+                                            // Уведомляем пользователя о завершении диалога
+                                            bot.send_message(chat_id, "Вы удалили последнего пользователя. Для дальнейшего использования бота введите команду /start.")
+                                                .await?;
+                                            // Завершаем диалог, если это было последнее подключение
+                                            dialogue.exit().await?;
+                                            return Ok(());
+                                        }
+
+                                        // Возвращаемся в меню редактирования подключений
+                                        edit_connections(bot, q).await?;
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to delete client: {}", e);
+                                        bot.send_message(
+                                            chat_id,
+                                            Messages::ru().error("удалении подключения"),
+                                        )
+                                        .await?;
+                                    }
+                                }
+                            } else {
+                                bot.send_message(chat_id, Messages::ru().connection_not_found())
+                                    .await?;
+                            }
+                        } else {
+                            log::error!("Failed to parse client connections");
+                            bot.send_message(
+                                chat_id,
+                                Messages::ru().error("получении информации о подключениях"),
+                            )
+                            .await?;
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to get client connections: {}", e);
+                        bot.send_message(
+                            chat_id,
+                            Messages::ru().error("получении информации о подключениях"),
+                        )
+                        .await?;
+                    }
+                }
+            }
+            None => {
+                bot.send_message(chat_id, Messages::ru().invalid_connection_index())
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Generates a QR code from the given data.
+///
+/// # Arguments
+///
+/// * `data` - The data to encode in the QR code.
+///
+/// # Returns
+///
+/// A `Result` containing the QR code as a vector of bytes, or an error if the
+/// QR code could not be generated.
+fn generate_qr_code(data: &str) -> Result<Vec<u8>, MyError> {
+    // Generate the QR code
+    let qrcode = QRBuilder::new(data).build()?;
+
+    // Create an image from the QR code and convert it to bytes
+    let image_bytes = ImageBuilder::default()
+        .shape(Shape::RoundedSquare)
+        .background_color([255, 255, 255, 0])
+        .fit_width(600)
+        .to_bytes(&qrcode)?;
+
+    Ok(image_bytes)
+}
+
+/// # Returns
+///
+/// A `HandlerResult`.
+pub async fn receive_device_count_callback(
+    bot: Bot,
+    dialogue: MyDialogue,
+    q: CallbackQuery,
+) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let chat_id = msg.chat().id;
+
+        // Извлекаем количество устройств из callback_data
+        let device_count = q
+            .data
+            .as_ref()
+            .and_then(|data| data.split('_').last())
+            .and_then(|count| count.parse::<u8>().ok());
+
+        match device_count {
+            Some(count) if (1..=MAX_DEVICES).contains(&count) => {
+                // Если количество устройств валидно, вызываем handle_valid_device_count
+                let username = q.from.username.as_deref().unwrap_or("unknown");
+                handle_valid_device_count(bot, dialogue, username, chat_id, count).await?;
+            }
+            _ => {
+                // Если количество устройств невалидно, отправляем сообщение об ошибке
+                bot.send_message(chat_id, Messages::ru().invalid_device_count())
                     .await?;
             }
         }

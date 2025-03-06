@@ -91,6 +91,78 @@ pub fn schema() -> UpdateHandler<MyError> {
                     .unwrap_or(false)
             })
             .endpoint(handlers::start_callback),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("edit_connection_"))
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::edit_connection),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("change_platform_"))
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::change_platform),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "change_current_connections")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::change_current_connections),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "add_connection")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::add_connection),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "delete_connections")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::delete_connections),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data == "back_to_edit_menu")
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::edit_connections),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("delete_connection_"))
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::delete_connection),
+        )
+        .branch(
+            dptree::filter(|q: CallbackQuery| {
+                q.data
+                    .as_ref()
+                    .map(|data| data.starts_with("device_count_"))
+                    .unwrap_or(false)
+            })
+            .endpoint(handlers::receive_device_count_callback),
         );
 
     // Create a dialogue that enters the specified states

@@ -63,9 +63,10 @@ impl ThreeXUiClient {
             Ok(())
         } else {
             // If the response is not successful, return an error with the status code.
-            Err(MyError::from(
-                format!("Login failed with status: {}", response.status()).as_str(),
-            ))
+            Err(MyError::Custom(format!(
+                "Login failed with status: {}",
+                response.status()
+            )))
         }
     }
 
@@ -194,18 +195,32 @@ impl ThreeXUiClient {
         Ok(json)
     }
 
-    pub async fn update_client(&self, uuid: &str, client_config: &Value) -> Result<Value, MyError> {
+    pub async fn update_client(
+        &self,
+        inbound_id: u32,
+        uuid: &str,
+        client_config: &Value,
+    ) -> Result<Value, MyError> {
         let url = format!("{}/panel/api/inbounds/updateClient/{}", self.base_url, uuid);
+        let payload = serde_json::json!({
+            "id": inbound_id,
+            "settings": serde_json::to_string(client_config)?
+        });
         let response = self
             .with_cookie(
                 self.client
                     .post(&url)
                     .header(CONTENT_TYPE, "application/json")
-                    .json(client_config),
+                    .json(&payload),
             )
             .send()
             .await?;
-        let json: Value = response.json().await?;
+
+        log::info!("Update client response status: {}", response.status());
+        let body = response.text().await?;
+        log::info!("Update client response body: {}", body);
+
+        let json: Value = serde_json::from_str(&body)?;
         Ok(json)
     }
 

@@ -11,6 +11,9 @@ pub enum State {
         current_device: u8,
         applications: Vec<String>,
     },
+    EditConnection {
+        connection_index: usize,
+    },
 }
 
 #[derive(BotCommands, Clone)]
