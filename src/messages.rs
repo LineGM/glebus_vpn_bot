@@ -17,7 +17,7 @@ impl RussianMessages {
             .to_string()
     }
 
-    pub fn invalid_state(&self) -> String {
+    pub fn invalid_input(&self) -> String {
         "⚠️ Ой, кажется, вы ввели что-то непонятное. 😅\n\n\
          Используйте /help для справки. 😊"
             .to_string()
@@ -143,5 +143,13 @@ impl RussianMessages {
 
     pub fn platform_changed(&self, platform: &str) -> String {
         format!("Платформа изменена на {}.", platform)
+    }
+
+    pub fn new_user_confirmed(&self) -> String {
+        "🚀 Да!".to_string()
+    }
+
+    pub fn welcome_prompt(&self) -> String {
+        "👋 Привет! Я помогу вам подключиться к GlebusVPN 🚀".to_string()
     }
 }

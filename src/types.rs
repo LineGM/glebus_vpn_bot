@@ -23,8 +23,6 @@ pub enum Command {
     Help,
     #[command(description = "Запускает операцию добавления подключений к GlebusVPN.")]
     Start,
-    #[command(description = "Прерывает текущую операцию.")]
-    Cancel,
 }
 
 pub type MyDialogue = Dialogue<State, InMemStorage<State>>;

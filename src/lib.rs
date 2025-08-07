@@ -7,7 +7,6 @@ pub mod logger;
 pub mod messages;
 pub mod schema;
 pub mod types;
-pub mod xui_api;
 
 pub use types::{Command, HandlerResult, MyDialogue, State};
 
