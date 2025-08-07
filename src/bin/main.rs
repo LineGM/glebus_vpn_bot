@@ -12,7 +12,7 @@ use glebus_vpn_bot::{error::MyError, logger, run};
 async fn main() -> Result<(), MyError> {
     dotenv::dotenv().ok();
 
-    logger::logger::init_logger()?;
+    logger::init_logger()?;
 
     run().await?;
 

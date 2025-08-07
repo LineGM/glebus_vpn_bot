@@ -1,6 +1,6 @@
 use super::messages::Messages;
 use super::types::{Command, HandlerResult, MyDialogue};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use remnawave::CreateUserRequestDto;
 use remnawave::RemnawaveApiClient;
 use teloxide::dispatching::dialogue::GetChatId;
@@ -174,7 +174,7 @@ pub async fn create_new_user(bot: Bot, q: CallbackQuery) -> HandlerResult {
             ss_password: None,
             traffic_limit_bytes: None,
             traffic_limit_strategy: remnawave::api::types::common::TrafficLimitStrategy::NoReset,
-            expire_at: Utc.with_ymd_and_hms(2099, 01, 01, 0, 0, 0).unwrap(),
+            expire_at: Utc.with_ymd_and_hms(2099, 1, 1, 0, 0, 0).unwrap(),
             created_at: None,
             last_traffic_reset_at: None,
             description: None,
@@ -317,12 +317,12 @@ pub async fn delete_me(bot: Bot, q: CallbackQuery) -> HandlerResult {
             Ok(user) => {
                 let user_data = &user.response[0];
 
-                let user_uuid = user_data.uuid.clone();
+                let user_uuid = user_data.uuid;
 
                 match client.users.delete_user(user_uuid).await {
                     Ok(_) => {
                         log::info!("User {} deleted successfully", user_id);
-                        bot.send_message(chat_id,format!("Ваша подписка успешно удалена, для создания новой подписки используйте команду /start"))
+                        bot.send_message(chat_id,"Ваша подписка успешно удалена, для создания новой подписки используйте команду `/start`")
                             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
                             .await?;
                     }
@@ -364,7 +364,7 @@ pub async fn recreate_sub_link(bot: Bot, q: CallbackQuery) -> HandlerResult {
             Ok(user) => {
                 let user_data = &user.response[0];
 
-                let user_uuid = user_data.uuid.clone();
+                let user_uuid = user_data.uuid;
 
                 match client.users.delete_user(user_uuid).await {
                     Ok(_) => {
@@ -383,20 +383,23 @@ pub async fn recreate_sub_link(bot: Bot, q: CallbackQuery) -> HandlerResult {
                             ss_password: None,
                             traffic_limit_bytes: Some(0),
                             traffic_limit_strategy: user_data.traffic_limit_strategy.clone(),
-                            expire_at: user_data.expire_at.clone(),
-                            created_at: Some(user_data.created_at.clone()),
-                            last_traffic_reset_at: user_data.last_traffic_reset_at.clone(),
+                            expire_at: user_data.expire_at,
+                            created_at: Some(user_data.created_at),
+                            last_traffic_reset_at: user_data.last_traffic_reset_at,
                             description: user_data.description.clone(),
                             tag: user_data.tag.clone(),
                             telegram_id: Some(user_id.clone().parse().unwrap()),
                             email: user_data.email.clone(),
-                            hwid_device_limit: user_data.hwid_device_limit.clone(),
+                            hwid_device_limit: user_data.hwid_device_limit,
                             active_internal_squads: Some(squads),
                         };
 
                         match client.users.create_user(new_user).await {
                             Ok(user_data) => {
-                                log::info!("User {} created successfully (during recreation)", user_id);
+                                log::info!(
+                                    "User {} created successfully (during recreation)",
+                                    user_id
+                                );
                                 let keyboard =
                                     InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
                                         Messages::ru().back(),
