@@ -1,20 +1,5 @@
 use crate::error::MyError;
-use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
-
-#[derive(Clone, Default)]
-pub enum State {
-    #[default]
-    Start,
-    ReceiveDeviceCount,
-    ReceiveDeviceInfo {
-        total_devices: u8,
-        current_device: u8,
-        applications: Vec<String>,
-    },
-    EditConnection {
-        connection_index: usize,
-    },
-}
+use teloxide::utils::command::BotCommands;
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Доступны следующие команды:")]
@@ -25,5 +10,4 @@ pub enum Command {
     Start,
 }
 
-pub type MyDialogue = Dialogue<State, InMemStorage<State>>;
 pub type HandlerResult = Result<(), MyError>;

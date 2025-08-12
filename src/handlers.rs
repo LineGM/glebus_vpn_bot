@@ -1,16 +1,21 @@
-use super::messages::Messages;
-use super::types::{Command, HandlerResult, MyDialogue};
-use chrono::{TimeZone, Utc};
+use crate::client::get_client;
+use crate::error::MyError;
+use crate::keyboards;
+use crate::messages::Messages;
+use crate::types::{Command, HandlerResult};
+
 use remnawave::CreateUserRequestDto;
-use remnawave::RemnawaveApiClient;
+
 use teloxide::dispatching::dialogue::GetChatId;
 use teloxide::utils::command::BotCommands;
 use teloxide::{
     prelude::*,
-    types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message},
+    types::{CallbackQuery, Message},
 };
 
-/// Extracts the user id from a `Message` or returns "unknown" if there is none.
+use chrono::{TimeZone, Utc};
+
+/// Extracts the user id from a `Message` or returns a default UserId if none exists.
 ///
 /// # Arguments
 ///
@@ -18,75 +23,46 @@ use teloxide::{
 ///
 /// # Returns
 ///
-/// The user id if one exists, otherwise "unknown".
-fn get_user_id(msg: &Message) -> String {
-    match msg.from {
-        Some(ref user) => user.id.to_string(),
-        None => "unknown".to_string(),
-    }
+/// The user id as a `UserId`.
+fn get_user_id(msg: &Message) -> UserId {
+    msg.from.as_ref().map(|user| user.id).unwrap_or(UserId(0))
 }
 
 async fn send_main_menu(bot: &Bot, chat_id: ChatId) -> ResponseResult<()> {
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback(
-            "Информация обо мне",
-            "show_about_me",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "Ссылка на подписку",
-            "show_sub_link",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "Пересоздать подписку",
-            "recreate_sub_link",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "Удалить подписку",
-            "delete_me",
-        )],
-    ]);
     bot.send_message(chat_id, "Главное меню:")
-        .reply_markup(keyboard)
+        .reply_markup(keyboards::main_menu())
         .await?;
     Ok(())
 }
 
 /// Handles the `/start` command.
 ///
-/// This function logs the user's input, sends a welcome message, and updates the dialogue state to
-/// `ReceiveDeviceCount`.
+/// Sends a welcome message and shows the main menu if the user exists, or prompts for creation if not.
 ///
 /// # Arguments
 ///
 /// * `bot` - The bot handle.
-/// * `dialogue` - The dialogue handle.
 /// * `msg` - The received `Message`.
 ///
 /// # Returns
 ///
 /// A `HandlerResult`.
-pub async fn start(bot: Bot, _dialogue: MyDialogue, msg: Message) -> HandlerResult {
+pub async fn start(bot: Bot, msg: Message) -> HandlerResult {
     let user_id = get_user_id(&msg);
-
     log::info!("User {} called /start", user_id);
 
-    let client = RemnawaveApiClient::new(
-        dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-        Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-    )
-    .expect("Failed to create RemnawaveApiClient");
-
-    match client.users.get_user_by_telegram_id(user_id).await {
+    let client = get_client();
+    match client
+        .users
+        .get_user_by_telegram_id(user_id.0.to_string())
+        .await
+    {
         Ok(_user) => {
             send_main_menu(&bot, msg.chat.id).await?;
         }
         Err(_) => {
-            let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-                Messages::ru().new_user_confirmed(),
-                "create_new_user",
-            )]]);
             bot.send_message(msg.chat.id, Messages::ru().welcome_prompt())
-                .reply_markup(keyboard)
+                .reply_markup(keyboards::new_user_confirmation())
                 .await?;
         }
     };
@@ -94,10 +70,6 @@ pub async fn start(bot: Bot, _dialogue: MyDialogue, msg: Message) -> HandlerResu
 }
 
 /// Handles the `/help` command by sending a list of available commands to the user.
-///
-/// This function extracts the username and chat ID from the received message, logs
-/// the `/help` command usage, and sends a message to the user with the descriptions
-/// of all available commands.
 ///
 /// # Arguments
 ///
@@ -108,20 +80,15 @@ pub async fn start(bot: Bot, _dialogue: MyDialogue, msg: Message) -> HandlerResu
 ///
 /// A `HandlerResult` indicating the success or failure of the operation.
 pub async fn help(bot: Bot, msg: Message) -> HandlerResult {
-    let user_id = get_user_id(&msg); // Extract user ID from the message
-
-    // Log the usage of the /help command with the user ID
+    let user_id = get_user_id(&msg);
     log::info!("User {} called /help", user_id);
 
-    // Send a message with the descriptions of all available commands to the user
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await?;
-
     Ok(())
 }
 
-/// Handles an invalid state by sending a message to the user and logging the
-/// incorrect user input.
+/// Handles invalid input by sending an error message to the user.
 ///
 /// # Arguments
 ///
@@ -132,21 +99,15 @@ pub async fn help(bot: Bot, msg: Message) -> HandlerResult {
 ///
 /// A `HandlerResult`.
 pub async fn invalid_input(bot: Bot, msg: Message) -> HandlerResult {
-    // Extract the user ID from the message
     let user_id = get_user_id(&msg);
-    // Extract the chat ID from the message
     let chat_id = msg.chat.id;
-    // Extract the user's input from the message
     let user_input = msg.text().unwrap_or_default();
 
-    // Log the incorrect user input
     log::warn!(
         "User {} entered an incorrect value: {}",
         user_id,
         user_input
     );
-
-    // Send a message to the user indicating that the input was incorrect
     bot.send_message(chat_id, Messages::ru().invalid_input())
         .await?;
     Ok(())
@@ -154,19 +115,18 @@ pub async fn invalid_input(bot: Bot, msg: Message) -> HandlerResult {
 
 pub async fn create_new_user(bot: Bot, q: CallbackQuery) -> HandlerResult {
     if let Some(msg) = q.message {
-        let user_id = q.from.id.to_string();
+        let user_id = q.from.id;
         let chat_id = msg.chat().id;
 
         log::info!("User {} called create_new_user", user_id);
 
-        let client = RemnawaveApiClient::new(
-            dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-            Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-        )
-        .expect("Failed to create RemnawaveApiClient");
-
+        let client = get_client();
+        let telegram_id: i64 = user_id
+            .0
+            .try_into()
+            .map_err(|_| MyError::Custom("User ID too large for i64".to_string()))?;
         let new_user = CreateUserRequestDto {
-            username: q.from.username.clone().unwrap_or(q.from.id.to_string()),
+            username: q.from.username.clone().unwrap_or(user_id.to_string()),
             status: remnawave::api::types::common::UserStatus::Active,
             short_uuid: None,
             trojan_password: None,
@@ -178,52 +138,174 @@ pub async fn create_new_user(bot: Bot, q: CallbackQuery) -> HandlerResult {
             created_at: None,
             last_traffic_reset_at: None,
             description: None,
-            tag: Some("USER".to_string()),
-            telegram_id: Some(user_id.parse().unwrap()),
+            tag: None,
+            telegram_id: Some(telegram_id),
             email: None,
             hwid_device_limit: None,
-            active_internal_squads: Some(
-                ["9236f04f-4d48-4bd2-a24e-60a352b9897a".to_string()].to_vec(),
-            ),
+            active_internal_squads: None,
         };
 
         match client.users.create_user(new_user).await {
-            Ok(_) => {
+            Ok(user_data) => {
                 log::info!("User {} created successfully", user_id);
-                send_main_menu(&bot, chat_id).await?;
+                bot.send_message(
+                    chat_id,
+                    format!(
+                        "Ваша подписка создана\\! Ссылка: `{}`",
+                        user_data.response.subscription_url
+                    ),
+                )
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                .reply_markup(keyboards::back_to_main_menu())
+                .await?;
             }
             Err(e) => {
                 log::error!("Failed to create user: {}", e);
                 bot.send_message(chat_id, Messages::ru().error("создании пользователя"))
+                    .reply_markup(keyboards::back_to_main_menu())
                     .await?;
             }
         };
     }
+    Ok(())
+}
 
+pub async fn recreate_sub_link(bot: Bot, q: CallbackQuery) -> HandlerResult {
+    if let Some(msg) = q.message {
+        let user_id = q.from.id;
+        let chat_id = msg.chat().id;
+
+        log::info!("User {} called recreate_sub_link", user_id);
+
+        let client = get_client();
+        match client
+            .users
+            .get_user_by_telegram_id(user_id.0.to_string())
+            .await
+        {
+            Ok(user) => {
+                let user_data = &user.response[0];
+                let user_uuid = user_data.uuid;
+
+                match client.users.delete_user(user_uuid).await {
+                    Ok(_) => {
+                        log::info!("User {} deleted successfully (during recreation)", user_id);
+                        let squads: Vec<String> = user_data
+                            .active_internal_squads
+                            .iter()
+                            .map(|s| s.clone().uuid.to_string())
+                            .collect();
+                        let telegram_id: i64 = user_id.0.try_into().map_err(|_| {
+                            MyError::Custom("User ID too large for i64".to_string())
+                        })?;
+                        let new_user = CreateUserRequestDto {
+                            username: user_data.username.clone(),
+                            status: user_data.status.clone(),
+                            short_uuid: None,
+                            trojan_password: None,
+                            vless_uuid: None,
+                            ss_password: None,
+                            traffic_limit_bytes: Some(0),
+                            traffic_limit_strategy: user_data.traffic_limit_strategy.clone(),
+                            expire_at: user_data.expire_at,
+                            created_at: Some(user_data.created_at),
+                            last_traffic_reset_at: user_data.last_traffic_reset_at,
+                            description: user_data.description.clone(),
+                            tag: user_data.tag.clone(),
+                            telegram_id: Some(telegram_id),
+                            email: user_data.email.clone(),
+                            hwid_device_limit: user_data.hwid_device_limit,
+                            active_internal_squads: Some(squads),
+                        };
+
+                        match client.users.create_user(new_user).await {
+                            Ok(user_data) => {
+                                log::info!(
+                                    "User {} created successfully (during recreation)",
+                                    user_id
+                                );
+                                bot.send_message(
+                                    chat_id,
+                                    format!(
+                                        "Новая ссылка на вашу подписку: `{}`",
+                                        user_data.response.subscription_url
+                                    ),
+                                )
+                                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                                .reply_markup(keyboards::back_to_main_menu())
+                                .await?;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to recreate user: {}", e);
+                                bot.send_message(
+                                    chat_id,
+                                    Messages::ru().error("создании пользователя"),
+                                )
+                                .reply_markup(keyboards::back_to_main_menu())
+                                .await?;
+                            }
+                        };
+                    }
+                    Err(e) => {
+                        log::error!("Failed to delete client: {}", e);
+                        bot.send_message(chat_id, Messages::ru().error("удалении пользователя"))
+                            .reply_markup(keyboards::back_to_main_menu())
+                            .await?;
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to get client info: {}", e);
+                bot.send_message(
+                    chat_id,
+                    Messages::ru().error("получении информации о пользователе"),
+                )
+                .reply_markup(keyboards::back_to_main_menu())
+                .await?;
+            }
+        };
+    }
+    Ok(())
+}
+
+pub async fn back_to_main_menu(bot: Bot, q: CallbackQuery) -> HandlerResult {
+    if let Some(ref _msg) = q.message {
+        let user_id = q.from.id;
+        log::info!("User {} called back_to_main_menu", user_id);
+
+        let client = get_client();
+        match client
+            .users
+            .get_user_by_telegram_id(user_id.0.to_string())
+            .await
+        {
+            Ok(_user) => {
+                send_main_menu(&bot, q.chat_id().unwrap()).await?;
+            }
+            Err(_) => {
+                bot.send_message(q.chat_id().unwrap(), Messages::ru().welcome_prompt())
+                    .reply_markup(keyboards::new_user_confirmation())
+                    .await?;
+            }
+        };
+    }
     Ok(())
 }
 
 pub async fn show_about_me(bot: Bot, q: CallbackQuery) -> HandlerResult {
     if let Some(msg) = q.message {
-        let user_id = q.from.id.to_string();
+        let user_id = q.from.id;
         let chat_id = msg.chat().id;
-
         log::info!("User {} called show_about_me", user_id);
 
-        let client = RemnawaveApiClient::new(
-            dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-            Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-        )
-        .expect("Failed to create RemnawaveApiClient");
-
-        match client.users.get_user_by_telegram_id(user_id).await {
+        let client = get_client();
+        match client
+            .users
+            .get_user_by_telegram_id(user_id.0.to_string())
+            .await
+        {
             Ok(user) => {
                 let user_data = &user.response[0];
-
-                let keyboard = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
-                    Messages::ru().back(),
-                    "back_to_main_menu",
-                )]]);
 
                 bot.send_message(chat_id, format!("🔑 *Профиль пользователя*\n Имя пользователя: `{}`\n Статус: `{}`\n📲 *Идентификаторы*\n Telegram ID: `{}`\n Email: `{}`\n📊 *Трафик*\n Использовано за все время: `{}`\n Лимит трафика: `{}`\n🖥 *Подключения и агенты*\n Последний UserAgent: `{}`\n Первое подключение: `{}`\n⏰ *Срок действия подписки*\n Активно до: `{}`\n📥 *Ссылки*\n Подписка: `{}`\n HAPP Crypto Link: `{}`",
                     user_data.username,
@@ -239,247 +321,98 @@ pub async fn show_about_me(bot: Bot, q: CallbackQuery) -> HandlerResult {
                     user_data.happ.crypto_link
                 ))
                     .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                    .reply_markup(keyboard)
+                    .reply_markup(keyboards::back_to_main_menu())
                     .await?;
             }
             Err(e) => {
-                log::error!("Failed to get client info: {}", e);
+                log::error!("Failed to get user info: {}", e);
                 bot.send_message(
                     chat_id,
                     Messages::ru().error("получении информации о пользователе"),
                 )
+                .reply_markup(keyboards::back_to_main_menu())
                 .await?;
             }
         };
     }
-
-    Ok(())
-}
-
-pub async fn show_sub_link(bot: Bot, q: CallbackQuery) -> HandlerResult {
-    if let Some(msg) = q.message {
-        let user_id = q.from.id.to_string();
-        let chat_id = msg.chat().id;
-
-        log::info!("User {} called show_sub_link", user_id);
-
-        let client = RemnawaveApiClient::new(
-            dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-            Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-        )
-        .expect("Failed to create RemnawaveApiClient");
-
-        match client.users.get_user_by_telegram_id(user_id).await {
-            Ok(user) => {
-                let user_data = &user.response[0];
-
-                let keyboard = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
-                    Messages::ru().back(),
-                    "back_to_main_menu",
-                )]]);
-
-                bot.send_message(
-                    chat_id,
-                    format!("Ссылка на вашу подписку `{}`", user_data.subscription_url),
-                )
-                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                .reply_markup(keyboard)
-                .await?;
-            }
-            Err(e) => {
-                log::error!("Failed to get client info: {}", e);
-                bot.send_message(
-                    chat_id,
-                    Messages::ru().error("получении информации о пользователе"),
-                )
-                .await?;
-            }
-        };
-    }
-
     Ok(())
 }
 
 pub async fn delete_me(bot: Bot, q: CallbackQuery) -> HandlerResult {
     if let Some(msg) = q.message {
-        let user_id = q.from.id.to_string();
+        let user_id = q.from.id;
         let chat_id = msg.chat().id;
-
         log::info!("User {} called delete_me", user_id);
 
-        let client = RemnawaveApiClient::new(
-            dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-            Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-        )
-        .expect("Failed to create RemnawaveApiClient");
-
-        match client.users.get_user_by_telegram_id(user_id.clone()).await {
+        let client = get_client();
+        match client
+            .users
+            .get_user_by_telegram_id(user_id.0.to_string())
+            .await
+        {
             Ok(user) => {
-                let user_data = &user.response[0];
-
-                let user_uuid = user_data.uuid;
-
+                let user_uuid = user.response[0].uuid;
                 match client.users.delete_user(user_uuid).await {
                     Ok(_) => {
                         log::info!("User {} deleted successfully", user_id);
-                        bot.send_message(chat_id,"Ваша подписка успешно удалена, для создания новой подписки используйте команду `/start`")
-                            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                        bot.send_message(chat_id, "Ваша подписка успешно удалена, для повторного создания подписки используйте команду /start")
                             .await?;
                     }
                     Err(e) => {
-                        log::error!("Failed to delete user {}: {}", user_id, e);
+                        log::error!("Failed to delete user: {}", e);
                         bot.send_message(chat_id, Messages::ru().error("удалении пользователя"))
+                            .reply_markup(keyboards::back_to_main_menu())
                             .await?;
                     }
                 }
             }
             Err(e) => {
-                log::error!("Failed to get client info: {}", e);
+                log::error!("Failed to get user info: {}", e);
                 bot.send_message(
                     chat_id,
                     Messages::ru().error("получении информации о пользователе"),
                 )
+                .reply_markup(keyboards::back_to_main_menu())
                 .await?;
             }
         };
     }
-
     Ok(())
 }
 
-pub async fn recreate_sub_link(bot: Bot, q: CallbackQuery) -> HandlerResult {
+pub async fn show_sub_link(bot: Bot, q: CallbackQuery) -> HandlerResult {
     if let Some(msg) = q.message {
-        let user_id = q.from.id.to_string();
-        let chat_id = msg.chat().id;
+        let user_id = q.from.id;
+        log::info!("User {} called show_sub_link", user_id);
 
-        log::info!("User {} called recreate_sub_link", user_id);
-
-        let client = RemnawaveApiClient::new(
-            dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-            Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-        )
-        .expect("Failed to create RemnawaveApiClient");
-
-        match client.users.get_user_by_telegram_id(user_id.clone()).await {
+        let client = get_client();
+        match client
+            .users
+            .get_user_by_telegram_id(user_id.0.to_string())
+            .await
+        {
             Ok(user) => {
-                let user_data = &user.response[0];
-
-                let user_uuid = user_data.uuid;
-
-                match client.users.delete_user(user_uuid).await {
-                    Ok(_) => {
-                        log::info!("User {} deleted successfully (during recreation)", user_id);
-                        let squads: Vec<String> = user_data
-                            .active_internal_squads
-                            .iter()
-                            .map(|s| s.clone().uuid.to_string())
-                            .collect();
-                        let new_user = CreateUserRequestDto {
-                            username: user_data.username.clone(),
-                            status: user_data.status.clone(),
-                            short_uuid: None,
-                            trojan_password: None,
-                            vless_uuid: None,
-                            ss_password: None,
-                            traffic_limit_bytes: Some(0),
-                            traffic_limit_strategy: user_data.traffic_limit_strategy.clone(),
-                            expire_at: user_data.expire_at,
-                            created_at: Some(user_data.created_at),
-                            last_traffic_reset_at: user_data.last_traffic_reset_at,
-                            description: user_data.description.clone(),
-                            tag: user_data.tag.clone(),
-                            telegram_id: Some(user_id.clone().parse().unwrap()),
-                            email: user_data.email.clone(),
-                            hwid_device_limit: user_data.hwid_device_limit,
-                            active_internal_squads: Some(squads),
-                        };
-
-                        match client.users.create_user(new_user).await {
-                            Ok(user_data) => {
-                                log::info!(
-                                    "User {} created successfully (during recreation)",
-                                    user_id
-                                );
-                                let keyboard =
-                                    InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
-                                        Messages::ru().back(),
-                                        "back_to_main_menu",
-                                    )]]);
-
-                                bot.send_message(
-                                    chat_id,
-                                    format!(
-                                        "Новая ссылка на вашу подписку: `{}`",
-                                        user_data.response.subscription_url
-                                    ),
-                                )
-                                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-                                .reply_markup(keyboard)
-                                .await?;
-                            }
-                            Err(e) => {
-                                log::error!("Failed to recreate user: {}", e);
-                                bot.send_message(
-                                    chat_id,
-                                    Messages::ru().error("создании пользователя"),
-                                )
-                                .await?;
-                            }
-                        };
-                    }
-                    Err(e) => {
-                        log::error!("Failed to delete client: {}", e);
-                        let keyboard =
-                            InlineKeyboardMarkup::new([[InlineKeyboardButton::callback(
-                                Messages::ru().back(),
-                                "back_to_main_menu",
-                            )]]);
-                        bot.send_message(chat_id, Messages::ru().error("удалении пользователя"))
-                            .reply_markup(keyboard)
-                            .await?;
-                    }
-                }
+                bot.send_message(
+                    msg.chat().id,
+                    format!(
+                        "Ваша ссылка на подписку: `{}`",
+                        user.response[0].subscription_url
+                    ),
+                )
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                .reply_markup(keyboards::back_to_main_menu())
+                .await?;
             }
             Err(e) => {
-                log::error!("Failed to get client info: {}", e);
+                log::error!("Failed to get subscription link: {}", e);
                 bot.send_message(
-                    chat_id,
-                    Messages::ru().error("получении информации о пользователе"),
+                    msg.chat().id,
+                    Messages::ru().error("получении ссылки на подписку"),
                 )
+                .reply_markup(keyboards::back_to_main_menu())
                 .await?;
             }
         };
     }
-
-    Ok(())
-}
-
-pub async fn back_to_main_menu(bot: Bot, q: CallbackQuery) -> HandlerResult {
-    if let Some(_msg) = q.message.clone() {
-        let user_id = q.from.id.to_string();
-
-        let client = RemnawaveApiClient::new(
-            dotenv::var("PANEL_BASE_URL").expect("PANEL_BASE_URL must be set"),
-            Some(dotenv::var("REMNAWAVE_API_TOKEN").expect("REMNAWAVE_API_TOKEN must be set")),
-        )
-        .expect("Failed to create RemnawaveApiClient");
-
-        match client.users.get_user_by_telegram_id(user_id).await {
-            Ok(_user) => {
-                send_main_menu(&bot, q.chat_id().unwrap()).await?;
-            }
-            Err(_) => {
-                let keyboard =
-                    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-                        Messages::ru().new_user_confirmed(),
-                        "create_new_user",
-                    )]]);
-                bot.send_message(q.chat_id().unwrap(), Messages::ru().welcome_prompt())
-                    .reply_markup(keyboard)
-                    .await?;
-            }
-        };
-    }
-
     Ok(())
 }
