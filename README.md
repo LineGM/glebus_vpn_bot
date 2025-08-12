@@ -49,7 +49,7 @@ When running the compiled binary directly, place .env in the same directory as t
 
 └── .env            # Environment file
 
-3. Run:
+### 3. Run:
 ```bash
 # Cargo
 cargo run --release
