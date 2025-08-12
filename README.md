@@ -42,8 +42,11 @@ PANEL_BASE_URL=https://your.panel.url
 REMNAWAVE_API_TOKEN=your_remnawave_api_token
 ```
 When running the compiled binary directly, place .env in the same directory as the executable:
+
 /target/release/
+
 ├── glebus_vpn_bot  # Binary
+
 └── .env            # Environment file
 
 3. Run:
