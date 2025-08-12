@@ -1,15 +1,16 @@
-use crate::error::MyError;
-use teloxide::dispatching::Dispatcher;
-
+pub mod client;
 pub mod error;
 pub mod handlers;
+pub mod keyboards;
 pub mod logger;
 pub mod messages;
 pub mod schema;
 pub mod types;
-pub mod xui_api;
 
-pub use types::{Command, HandlerResult, MyDialogue, State};
+pub use error::MyError;
+pub use types::{Command, HandlerResult};
+
+use teloxide::dispatching::Dispatcher;
 
 /// Starts the GlebusVPN bot and dispatches updates.
 ///
@@ -28,21 +29,11 @@ pub use types::{Command, HandlerResult, MyDialogue, State};
 pub async fn run() -> Result<(), MyError> {
     log::info!("Starting GlebusVPN bot...");
 
-    // Initialize the bot using the environment configuration
     let bot = teloxide::Bot::from_env();
 
-    // Set up the dispatcher with the schema
     Dispatcher::builder(bot, schema::schema())
-        // Dependencies are services that can be used by the handlers
-        .dependencies(dptree::deps![
-            // We use an in-memory storage to store the dialogue state
-            teloxide::dispatching::dialogue::InMemStorage::<State>::new()
-        ])
-        // Enable a control-C handler for graceful shutdown
         .enable_ctrlc_handler()
-        // Build the dispatcher
         .build()
-        // Start dispatching updates asynchronously
         .dispatch()
         .await;
 
